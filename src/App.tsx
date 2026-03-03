@@ -1,11 +1,11 @@
 import { Header } from './components/layout/Header';
-import { Page } from './components/layout/Page';
+import { Dashboard } from './components/layout/Dashboard';
 
 export function App() {
   return (
     <div className="flex flex-col h-full">
       <Header />
-      <Page />
+      <Dashboard />
     </div>
   );
 }
