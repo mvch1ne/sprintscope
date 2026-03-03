@@ -1,3 +1,12 @@
+// This is where the entire program will be run
+import { EmptyProject } from '@/components/dashboard/EmptyProject';
+
 export const Page = () => {
-  return <div className="h-full bg-amber-600">This is the main page</div>;
+  const flag = true;
+  return flag ? <EmptyProject /> : <></>;
+  //   return (
+  //     <>
+
+  //     </>
+  //   );
 };
