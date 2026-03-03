@@ -1,4 +1,6 @@
 // import { EmptyProject } from '@/components/dashboard/EmptyProject';
+import { Viewport } from '../dashboard/viewport/Viewport';
+import { Telemetry } from '../dashboard/telemetry/Telemetry';
 import {
   ResizableHandle,
   ResizablePanel,
@@ -8,20 +10,16 @@ import {
 export const Dashboard = () => {
   return (
     <ResizablePanelGroup orientation="horizontal">
-      {/* Graphs and Tables Area */}
-      <ResizablePanel
-        defaultSize="20%"
-        className="flex justify-center items-center"
-      >
-        Graphs and Tables Area
+      {/* Telemetry Panel */}
+      <ResizablePanel defaultSize="20%" minSize="20%" maxSize="30%">
+        <Telemetry />
       </ResizablePanel>
       <ResizableHandle withHandle />
 
-      {/* Video Viewport */}
-      <ResizablePanel
-        defaultSize="80%"
-        className="flex justify-center items-center"
-      ></ResizablePanel>
+      {/* Viewport Panel */}
+      <ResizablePanel defaultSize="80%" minSize="70%" maxSize="80%">
+        <Viewport />
+      </ResizablePanel>
     </ResizablePanelGroup>
   );
 };
