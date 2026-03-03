@@ -1,7 +1,6 @@
 export const Viewport = () => {
   const sectionHeights = {
     header: '1.25rem',
-    mainViewport: '1',
     controlSection: '10rem',
   };
 
