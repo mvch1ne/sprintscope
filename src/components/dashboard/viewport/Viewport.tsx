@@ -15,7 +15,7 @@ export const Viewport = () => {
         style={{ height: sectionHeights.header }}
         className="text-xs flex items-center justify-start gap-4 border border-t-0 shrink-0"
       >
-        <span className="h-full flex justify-center items-center bg-ring py-0.5 px-1">
+        <span className="h-full flex justify-center items-center bg-[#343434] py-0.5 px-1">
           VIEWPORT
         </span>
         <div className="flex items-center">
