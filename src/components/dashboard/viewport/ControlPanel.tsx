@@ -11,6 +11,8 @@ import {
   VolumeX,
   Flag,
   Ruler,
+  Crosshair,
+  PanelRight,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -47,6 +49,11 @@ interface ControlPanelProps {
   onClearStartFrame: () => void;
   calibration: CalibrationData | null;
   onStartCalibration: () => void;
+  measuring: boolean;
+  onToggleMeasuring: () => void;
+  measurementCount: number;
+  showMeasurementPanel: boolean;
+  onToggleMeasurementPanel: () => void;
   disabled?: boolean;
 }
 
@@ -120,6 +127,11 @@ export function ControlPanel({
   onClearStartFrame,
   calibration,
   onStartCalibration,
+  measuring,
+  onToggleMeasuring,
+  measurementCount,
+  showMeasurementPanel,
+  onToggleMeasurementPanel,
   disabled = false,
 }: ControlPanelProps) {
   const effectiveFps = (fps || 30) * (playbackRate || 1);
@@ -391,6 +403,36 @@ export function ControlPanel({
               active={!!calibration}
             >
               <Ruler size={14} />
+            </IconBtn>
+
+            {/* Measure tool — only enabled when calibrated */}
+            <IconBtn
+              onClick={onToggleMeasuring}
+              tooltip={
+                !calibration
+                  ? 'Calibrate first to measure'
+                  : measuring
+                    ? 'Stop measuring'
+                    : 'Measure distance'
+              }
+              active={measuring}
+              disabled={!calibration}
+            >
+              <Crosshair size={14} />
+            </IconBtn>
+
+            {/* Measurement panel toggle */}
+            <IconBtn
+              onClick={onToggleMeasurementPanel}
+              tooltip={
+                showMeasurementPanel
+                  ? 'Hide measurements'
+                  : `Show measurements${measurementCount > 0 ? ` (${measurementCount})` : ''}`
+              }
+              active={showMeasurementPanel}
+              disabled={!calibration}
+            >
+              <PanelRight size={14} />
             </IconBtn>
 
             {/* Keyboard hints */}

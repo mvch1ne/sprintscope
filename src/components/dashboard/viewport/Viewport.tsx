@@ -5,6 +5,9 @@ import { VideoLayer } from './VideoLayer';
 import { ControlPanel } from './ControlPanel';
 import { CalibrationOverlay } from './CalibrationOverlay';
 import type { CalibrationData } from './CalibrationOverlay';
+import { MeasurementOverlay } from './MeasurementOverlay';
+import { MeasurementPanel } from './MeasurementPanel';
+import type { Measurement } from './MeasurementOverlay';
 
 interface VideoMeta {
   src: string;
@@ -39,6 +42,10 @@ export const Viewport = () => {
   const [calibration, setCalibration] = useState<CalibrationData | null>(null);
   const [calibrating, setCalibrating] = useState(false);
   const [calibrationKey, setCalibrationKey] = useState(0);
+  const [measuring, setMeasuring] = useState(false);
+  const [measuringKey, setMeasuringKey] = useState(0);
+  const [measurements, setMeasurements] = useState<Measurement[]>([]);
+  const [showMeasurementPanel, setShowMeasurementPanel] = useState(false);
   const [transform, setTransform] = useState<Transform>({
     scale: 1,
     x: 0,
@@ -100,16 +107,23 @@ export const Viewport = () => {
     return () => el.removeEventListener('wheel', onWheel);
   });
 
-  const onPointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      if (calibrating || transform.scale <= 1) return;
-      isPanning.current = true;
-      panStart.current = { x: e.clientX, y: e.clientY };
-      panOrigin.current = { x: transform.x, y: transform.y };
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    },
-    [calibrating, transform.scale, transform.x, transform.y],
-  );
+  const calibratingRef = useRef(calibrating);
+  const measuringRef = useRef(measuring);
+  useEffect(() => {
+    calibratingRef.current = calibrating;
+  }, [calibrating]);
+  useEffect(() => {
+    measuringRef.current = measuring;
+  }, [measuring]);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (calibratingRef.current || measuringRef.current || transform.scale <= 1)
+      return;
+    isPanning.current = true;
+    panStart.current = { x: e.clientX, y: e.clientY };
+    panOrigin.current = { x: transform.x, y: transform.y };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
@@ -163,6 +177,9 @@ export const Viewport = () => {
         setStartFrame(null);
         setCalibration(null);
         setCalibrating(false);
+        setMeasuring(false);
+        setMeasurements([]);
+        setShowMeasurementPanel(false);
         resetTransform();
       };
     },
@@ -256,11 +273,12 @@ export const Viewport = () => {
         ref={mainRef}
         className="flex-1 border border-zinc-400 dark:border-zinc-600 overflow-hidden relative bg-black select-none"
         style={{
-          cursor: calibrating
-            ? 'crosshair'
-            : transform.scale > 1
-              ? 'grab'
-              : 'default',
+          cursor:
+            calibrating || measuring
+              ? 'crosshair'
+              : transform.scale > 1
+                ? 'grab'
+                : 'default',
           touchAction: 'none',
         }}
         onPointerDown={onPointerDown}
@@ -309,6 +327,66 @@ export const Viewport = () => {
                 onCalibrationComplete={() => {}}
                 onCancel={() => {}}
               />
+            )}
+
+            {/* Measurement overlay — always mounted when calibrated so saved lines persist */}
+            {calibration && (
+              <MeasurementOverlay
+                key={measuringKey}
+                active={measuring}
+                transform={transform}
+                calibration={calibration}
+                measurements={measurements}
+                onMeasurementAdded={(m) => {
+                  setMeasurements((prev) => [...prev, m]);
+                  setShowMeasurementPanel(true);
+                }}
+              />
+            )}
+
+            {/* Measurement HUD */}
+            {measuring && (
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/80 border border-zinc-600 rounded-sm backdrop-blur-sm pointer-events-auto">
+                  <div className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+                  <span className="text-[9px] uppercase tracking-widest text-zinc-300">
+                    Click two points to measure
+                  </span>
+                  <button
+                    onClick={() => setMeasuring(false)}
+                    className="ml-2 text-[9px] uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Measurement panel */}
+            {showMeasurementPanel && (
+              <div className="absolute top-0 right-0 bottom-0 w-56 border-l border-zinc-400 dark:border-zinc-600 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm">
+                <MeasurementPanel
+                  measurements={measurements}
+                  onDelete={(id) =>
+                    setMeasurements((prev) => prev.filter((m) => m.id !== id))
+                  }
+                  onDeleteAll={() => setMeasurements([])}
+                  onToggleVisible={(id) =>
+                    setMeasurements((prev) =>
+                      prev.map((m) =>
+                        m.id === id ? { ...m, visible: !m.visible } : m,
+                      ),
+                    )
+                  }
+                  onToggleAllVisible={() => {
+                    const allVisible = measurements.every((m) => m.visible);
+                    setMeasurements((prev) =>
+                      prev.map((m) => ({ ...m, visible: !allVisible })),
+                    );
+                  }}
+                  onClose={() => setShowMeasurementPanel(false)}
+                />
+              </div>
             )}
           </>
         ) : (
@@ -370,6 +448,15 @@ export const Viewport = () => {
             setCalibrationKey((k) => k + 1);
             setCalibrating(true);
           }}
+          measuring={measuring}
+          onToggleMeasuring={() => {
+            setIsPlaying(false);
+            setMeasuringKey((k) => k + 1);
+            setMeasuring((m) => !m);
+          }}
+          measurementCount={measurements.length}
+          showMeasurementPanel={showMeasurementPanel}
+          onToggleMeasurementPanel={() => setShowMeasurementPanel((v) => !v)}
           disabled={!videoMeta}
         />
       </div>

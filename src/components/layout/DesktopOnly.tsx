@@ -53,7 +53,7 @@ export function DesktopOnly({ children }: { children: React.ReactNode }) {
                 Desktop Only
               </span>
               <div className="w-8 h-px bg-zinc-400 dark:bg-zinc-600" />
-              <p className="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono leading-relaxed text-center max-w-[220px]">
+              <p className="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono leading-relaxed text-center max-w-55">
                 SprintLab requires a desktop environment. Please reopen on a
                 larger screen to begin analysis.
               </p>
