@@ -54,7 +54,7 @@ function IconBtn({
                 ? 'opacity-25 cursor-not-allowed border-transparent'
                 : active
                   ? 'bg-sky-600/20 border-sky-500/60 text-sky-400 cursor-pointer'
-                  : 'border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200 dark:hover:bg-zinc-800 cursor-pointer'
+                  : 'border-zinc-400 text-zinc-700 dark:text-zinc-300 hover:border-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-950 dark:hover:border-zinc-1000 dark:hover:text-zinc-200 dark:hover:bg-zinc-800 cursor-pointer'
             }
           `}
         >
@@ -69,10 +69,10 @@ function IconBtn({
 function Readout({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col items-center gap-0.5">
-      <span className="text-[9px] uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
+      <span className="text-[9px] uppercase tracking-widest text-zinc-700 dark:text-zinc-300 dark:bg-zinc-950">
         {label}
       </span>
-      <span className="text-xs text-sky-600 dark:text-sky-400 tabular-nums leading-none">
+      <span className="text-xs text-sky-600 dark:text-sky-300 tabular-nums leading-none">
         {value}
       </span>
     </div>
@@ -169,23 +169,23 @@ export function ControlPanel() {
     <TooltipProvider delayDuration={400}>
       <div className="ControlPanelContainer h-full w-full flex flex-col bg-white text-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
         {/* Top label bar */}
-        <div className="TopBar h-5 shrink-0 border border-b-0 border-zinc-200 dark:border-zinc-800 flex items-center px-3 gap-2">
+        <div className="TopBar h-5 shrink-0 border border-b-0 border-zinc-400 dark:border-zinc-600 flex items-center px-3 gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-sky-500" />
-          <span className="text-[9px] uppercase tracking-[0.2em] text-zinc-400 dark:text-zinc-500">
+          <span className="text-[9px] uppercase tracking-[0.2em] text-zinc-700 dark:text-zinc-300 dark:bg-zinc-950">
             Viewport · Playback Control
           </span>
           <div className="ml-auto flex gap-1">
             {[...Array(3)].map((_, i) => (
               <div
                 key={i}
-                className="w-1 h-1 rounded-full bg-zinc-300 dark:bg-zinc-700"
+                className="w-1 h-1 rounded-full bg-zinc-300 dark:text-zinc-300"
               />
             ))}
           </div>
         </div>
 
         {/* Main controls */}
-        <div className="MainControls flex-1 border border-t-0 border-zinc-200 dark:border-zinc-800 flex flex-col overflow-hidden">
+        <div className="MainControls flex-1 border border-t-0 border-zinc-400 dark:border-zinc-600 flex flex-col overflow-hidden">
           {/* Scrubber */}
           <div className="ScrubberSection px-4 pt-3 pb-1">
             <div
@@ -206,7 +206,7 @@ export function ControlPanel() {
               {Array.from({ length: 25 }, (_, i) => (
                 <div
                   key={i}
-                  className="absolute top-full mt-0.5 w-px h-1 bg-zinc-300 dark:bg-zinc-700"
+                  className="absolute top-full mt-0.5 w-px h-1 bg-zinc-300 dark:text-zinc-300"
                   style={{ left: `${(i / 24) * 100}%` }}
                 />
               ))}
@@ -228,7 +228,7 @@ export function ControlPanel() {
           </div>
 
           {/* Divider */}
-          <div className="mx-4 border-t border-zinc-200 dark:border-zinc-800/60" />
+          <div className="mx-4 border-t border-zinc-400 dark:border-zinc-600/60" />
 
           {/* Transport controls */}
           <div className="ControlInputSection flex flex-1 items-center px-4 gap-2 flex-wrap">
@@ -260,7 +260,7 @@ export function ControlPanel() {
                   ${
                     isPlaying
                       ? 'bg-sky-500 border-sky-400 text-white shadow-[0_0_12px_rgba(14,165,233,0.4)] dark:bg-sky-600 dark:border-sky-500 dark:shadow-[0_0_12px_rgba(14,165,233,0.4)]'
-                      : 'bg-zinc-100 border-zinc-300 text-zinc-700 hover:bg-zinc-200 hover:border-zinc-400 dark:bg-zinc-800 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-700 dark:hover:border-zinc-500'
+                      : 'bg-zinc-100 border-zinc-400 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 hover:border-zinc-500 dark:bg-zinc-950 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-700 dark:hover:border-zinc-1000'
                   }
                 `}
                 >
@@ -290,7 +290,7 @@ export function ControlPanel() {
             </IconBtn>
 
             {/* Divider */}
-            <div className="h-6 w-px bg-zinc-300 dark:bg-zinc-700 mx-1" />
+            <div className="h-6 w-px bg-zinc-300 dark:text-zinc-300 mx-1" />
 
             {/* Speed selector */}
             <Tooltip>
@@ -300,7 +300,7 @@ export function ControlPanel() {
                     value={String(speed)}
                     onValueChange={(v) => setSpeed(Number(v))}
                   >
-                    <SelectTrigger className="h-7 w-20 text-xs px-2 bg-zinc-50 border-zinc-300 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200 cursor-pointer">
+                    <SelectTrigger className="h-7 w-20 text-xs px-2 bg-zinc-50 border-zinc-400 text-zinc-700 dark:text-zinc-300 hover:border-zinc-500 hover:text-zinc-700 dark:text-zinc-300 dark:bg-zinc-950 dark:border-zinc-600 dark:bg-zinc-950 dark:hover:border-zinc-1000 dark:hover:text-zinc-200 cursor-pointer">
                       <Gauge size={12} className="shrink-0" />
                       <SelectValue />
                     </SelectTrigger>
@@ -328,10 +328,10 @@ export function ControlPanel() {
                 ['Space', 'play'],
               ].map(([key, label]) => (
                 <div key={key} className="flex items-center gap-1">
-                  <span className="text-[9px] px-1 py-0.5 bg-zinc-100 border border-zinc-300 dark:bg-zinc-800 dark:border-zinc-700 rounded-sm text-zinc-400 dark:text-zinc-500 leading-none">
+                  <span className="text-[9px] px-1 py-0.5 bg-zinc-100 border border-zinc-400 dark:bg-zinc-950 dark:border-zinc-600 rounded-sm text-zinc-700 dark:text-zinc-300 dark:bg-zinc-950 leading-none">
                     {key}
                   </span>
-                  <span className="text-[9px] text-zinc-400 dark:text-zinc-600 uppercase tracking-wide">
+                  <span className="text-[9px] text-zinc-700 dark:text-zinc-300 dark:bg-zinc-950 uppercase tracking-wide">
                     {label}
                   </span>
                 </div>
