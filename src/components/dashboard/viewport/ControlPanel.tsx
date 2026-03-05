@@ -9,6 +9,8 @@ import {
   Gauge,
   Volume2,
   VolumeX,
+  Flag,
+  Ruler,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -23,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import type { CalibrationData } from './CalibrationOverlay';
 
 const SPEED_OPTIONS = [0.25, 0.5, 1, 1.5, 2, 4];
 
@@ -39,6 +42,11 @@ interface ControlPanelProps {
   isMuted: boolean;
   setIsMuted: (v: boolean) => void;
   onSeekToFrame: (frame: number) => void;
+  startFrame: number | null;
+  onSetStartFrame: () => void;
+  onClearStartFrame: () => void;
+  calibration: CalibrationData | null;
+  onStartCalibration: () => void;
   disabled?: boolean;
 }
 
@@ -107,13 +115,19 @@ export function ControlPanel({
   isMuted,
   setIsMuted,
   onSeekToFrame,
+  startFrame,
+  onSetStartFrame,
+  onClearStartFrame,
+  calibration,
+  onStartCalibration,
   disabled = false,
 }: ControlPanelProps) {
-  const effectiveFps = (fps || 30) * playbackRate;
+  const effectiveFps = (fps || 30) * (playbackRate || 1);
   const frameDuration = 1 / (fps || 30);
-  const decimalPlaces = Math.ceil(-Math.log10(frameDuration));
+  const decimalPlaces = Math.max(1, Math.ceil(-Math.log10(frameDuration)));
   const frameToTimecode = (frame: number) => {
-    const totalSecs = frame / (fps || 30);
+    const f = Math.max(0, frame);
+    const totalSecs = f / (fps || 30);
     const mins = Math.floor(totalSecs / 60)
       .toString()
       .padStart(2, '0');
@@ -122,6 +136,9 @@ export function ControlPanel({
       .padStart(3 + decimalPlaces, '0');
     return `${mins}:${secs}`;
   };
+  const relativeFrame = startFrame !== null ? currentFrame - startFrame : null;
+  const absRelFrame = relativeFrame !== null ? Math.abs(relativeFrame) : null;
+  const timePrefix = relativeFrame !== null && relativeFrame < 0 ? '−' : '';
 
   const stepForward = useCallback(() => {
     setIsPlaying(false);
@@ -212,21 +229,29 @@ export function ControlPanel({
                   style={{ left: `${(i / 24) * 100}%` }}
                 />
               ))}
+              {/* Start frame marker */}
+              {startFrame !== null && totalFrames > 1 && (
+                <div
+                  className="absolute top-[-4px] bottom-[-4px] w-px bg-orange-400"
+                  style={{ left: `${(startFrame / (totalFrames - 1)) * 100}%` }}
+                />
+              )}
             </div>
           </div>
 
           {/* Timecode readouts */}
           <div className="ReadoutsRow flex justify-between items-center px-4 pt-2 pb-1">
             <Readout
-              label="Frame"
-              value={`${currentFrame} / ${totalFrames > 0 ? totalFrames - 1 : 0}`}
+              label={startFrame !== null ? 'Rel. Frame' : 'Frame'}
+              value={`${relativeFrame !== null ? relativeFrame : currentFrame} / ${totalFrames > 0 ? totalFrames - 1 : 0}`}
             />
-            <Readout label="Timecode" value={frameToTimecode(currentFrame)} />
+            <Readout
+              label={startFrame !== null ? 'Rel. Time' : 'Timecode'}
+              value={`${timePrefix}${frameToTimecode(absRelFrame !== null ? absRelFrame : currentFrame)}`}
+            />
             <Readout
               label="Duration"
-              value={
-                totalFrames > 0 ? frameToTimecode(totalFrames - 1) : '00:00.000'
-              }
+              value={totalFrames > 1 ? frameToTimecode(totalFrames - 1) : '—'}
             />
             <Readout label="FPS" value={`${effectiveFps}`} />
             <Readout
@@ -292,7 +317,7 @@ export function ControlPanel({
               value={String(playbackRate)}
               onValueChange={(v) => setPlaybackRate(Number(v))}
             >
-              <SelectTrigger className="h-7 text-xs px-2 bg-zinc-50 border-zinc-400 text-zinc-700 dark:text-zinc-300 hover:border-zinc-500 dark:bg-zinc-950 dark:border-zinc-600 dark:hover:border-zinc-500 cursor-pointer">
+              <SelectTrigger className="h-7 w-24 text-xs px-2 bg-zinc-50 border-zinc-400 text-zinc-700 dark:text-zinc-300 hover:border-zinc-500 dark:bg-zinc-950 dark:border-zinc-600 dark:hover:border-zinc-500 cursor-pointer">
                 <Gauge size={12} className="shrink-0" />
                 <SelectValue />
               </SelectTrigger>
@@ -337,6 +362,36 @@ export function ControlPanel({
                 Volume {Math.round((isMuted ? 0 : volume) * 100)}%
               </TooltipContent>
             </Tooltip>
+
+            <div className="h-6 w-px bg-zinc-300 dark:bg-zinc-600 mx-1" />
+
+            {/* Start time */}
+            <IconBtn
+              onClick={
+                startFrame !== null ? onClearStartFrame : onSetStartFrame
+              }
+              tooltip={
+                startFrame !== null
+                  ? `Start: frame ${startFrame} — click to clear`
+                  : 'Set analysis start (current frame)'
+              }
+              active={startFrame !== null}
+            >
+              <Flag size={14} />
+            </IconBtn>
+
+            {/* Distance calibration */}
+            <IconBtn
+              onClick={onStartCalibration}
+              tooltip={
+                calibration
+                  ? `Calibrated: ${calibration.realMeters}m — click to redo`
+                  : 'Calibrate distance'
+              }
+              active={!!calibration}
+            >
+              <Ruler size={14} />
+            </IconBtn>
 
             {/* Keyboard hints */}
             <div className="ml-auto flex items-center gap-2">
