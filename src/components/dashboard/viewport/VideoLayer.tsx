@@ -12,6 +12,7 @@ interface VideoLayerProps {
     getCurrentTime: () => number,
     videoEl: HTMLVideoElement,
   ) => void;
+  onLoadingChange: (loading: boolean) => void;
 }
 
 export const VideoLayer = ({
@@ -22,11 +23,11 @@ export const VideoLayer = ({
   isMuted,
   onTimeUpdate,
   onVideoReady,
+  onLoadingChange,
 }: VideoLayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const rafRef = useRef<number | null>(null);
 
-  // Expose imperative API to parent once mounted
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -39,16 +40,13 @@ export const VideoLayer = ({
     );
   }, [onVideoReady]);
 
-  // rAF loop drives onTimeUpdate during playback
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-
     const tick = () => {
       onTimeUpdate(video.currentTime);
       rafRef.current = requestAnimationFrame(tick);
     };
-
     if (isPlaying) {
       video.play().catch(() => {});
       rafRef.current = requestAnimationFrame(tick);
@@ -60,7 +58,6 @@ export const VideoLayer = ({
       }
       onTimeUpdate(video.currentTime);
     }
-
     return () => {
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
@@ -69,20 +66,42 @@ export const VideoLayer = ({
     };
   }, [isPlaying, onTimeUpdate]);
 
-  // Sync playback rate
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     video.playbackRate = playbackRate;
   }, [playbackRate]);
 
-  // Sync volume and mute
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     video.volume = volume;
     video.muted = isMuted;
   }, [volume, isMuted]);
+
+  // Loading state — fires on seeking and buffering
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const setLoading = () => onLoadingChange(true);
+    const setNotLoading = () => onLoadingChange(false);
+    video.addEventListener('waiting', setLoading);
+    video.addEventListener('seeking', setLoading);
+    video.addEventListener('loadstart', setLoading);
+    video.addEventListener('canplay', setNotLoading);
+    video.addEventListener('canplaythrough', setNotLoading);
+    video.addEventListener('seeked', setNotLoading);
+    video.addEventListener('playing', setNotLoading);
+    return () => {
+      video.removeEventListener('waiting', setLoading);
+      video.removeEventListener('seeking', setLoading);
+      video.removeEventListener('loadstart', setLoading);
+      video.removeEventListener('canplay', setNotLoading);
+      video.removeEventListener('canplaythrough', setNotLoading);
+      video.removeEventListener('seeked', setNotLoading);
+      video.removeEventListener('playing', setNotLoading);
+    };
+  }, [onLoadingChange]);
 
   return (
     <video

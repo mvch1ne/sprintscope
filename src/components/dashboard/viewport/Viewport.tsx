@@ -13,6 +13,11 @@ import { PosePanel } from './PosePanel';
 import { usePoseLandmarker } from './usePoseLandmarker';
 import { LANDMARKS, buildDefaultVisibility } from './poseConfig';
 import type { LandmarkDef } from './poseConfig';
+import { TrimCropPanel } from './TrimCropPanel';
+import { CropOverlay } from './CropOverlay';
+import { useExport } from './useExport';
+import { hasRVFC, type VideoElementWithRVFC } from './videoUtils';
+import type { CropRect, TrimPoints } from './TrimCropPanel';
 
 interface VideoMeta {
   src: string;
@@ -56,6 +61,8 @@ export const Viewport = () => {
     x: 0,
     y: 0,
   });
+  const [videoLoading, setVideoLoading] = useState(false);
+  const exportingRef = useRef(false);
 
   // ── Pose ──────────────────────────────────────────────────────────────────
   const [poseEnabled, setPoseEnabled] = useState(false);
@@ -71,6 +78,16 @@ export const Viewport = () => {
     detect,
   } = usePoseLandmarker(poseEnabled);
 
+  // ── Trim & Crop ───────────────────────────────────────────────────────────
+  const [showTrimCropPanel, setShowTrimCropPanel] = useState(false);
+  const [cropRect, setCropRect] = useState<CropRect | null>(null);
+  const [drawingCrop, setDrawingCrop] = useState(false);
+  const [showCropOverlay, setShowCropOverlay] = useState(false);
+  const [trimPoints, setTrimPoints] = useState<TrimPoints>({
+    inPoint: 0,
+    outPoint: 0,
+  });
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const seekVideo = useRef<(time: number) => void>(() => {});
   const getVideoTime = useRef<() => number>(() => 0);
@@ -82,6 +99,17 @@ export const Viewport = () => {
   const fps = videoMeta?.fps ?? 30;
   const totalFrames = videoMeta?.totalFrames ?? 0;
   const currentFrame = Math.floor(currentTime * fps);
+
+  const { exportStatus, exportProgress, startExport } = useExport({
+    videoElRef,
+    exportingRef,
+    videoWidth: videoMeta?.width ?? 0,
+    videoHeight: videoMeta?.height ?? 0,
+    fps,
+    trimPoints,
+    cropRect,
+    title: videoMeta?.title ?? 'clip',
+  });
 
   // ── Run pose detection on every frame change ──────────────────────────────
   useEffect(() => {
@@ -142,7 +170,12 @@ export const Viewport = () => {
   }, [measuring]);
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (calibratingRef.current || measuringRef.current || transform.scale <= 1)
+    if (
+      calibratingRef.current ||
+      measuringRef.current ||
+      drawingCrop ||
+      transform.scale <= 1
+    )
       return;
     isPanning.current = true;
     panStart.current = { x: e.clientX, y: e.clientY };
@@ -183,8 +216,51 @@ export const Viewport = () => {
       const src = URL.createObjectURL(file);
       const tmp = document.createElement('video');
       tmp.src = src;
-      tmp.onloadedmetadata = () => {
-        const fps = 30;
+      tmp.muted = true;
+      tmp.preload = 'auto';
+
+      tmp.onloadedmetadata = async () => {
+        // ── Detect real FPS via requestVideoFrameCallback ──────────────────
+        let detectedFps = 30;
+        if (hasRVFC(tmp)) {
+          detectedFps = await new Promise<number>((resolve) => {
+            const PROBE_DURATION = 1.0;
+            let frameCount = 0;
+            let startTime: number | null = null;
+
+            const onFrame = (_now: number, meta: { mediaTime: number }) => {
+              if (startTime === null) startTime = meta.mediaTime;
+              frameCount++;
+              const elapsed = meta.mediaTime - startTime;
+              if (elapsed >= PROBE_DURATION || tmp.ended) {
+                tmp.pause();
+                resolve(elapsed > 0 ? Math.round(frameCount / elapsed) : 30);
+              } else {
+                (tmp as VideoElementWithRVFC).requestVideoFrameCallback(
+                  onFrame,
+                );
+              }
+            };
+
+            tmp.currentTime = 0;
+            tmp.playbackRate = 1;
+            tmp
+              .play()
+              .then(() => {
+                (tmp as VideoElementWithRVFC).requestVideoFrameCallback(
+                  onFrame,
+                );
+              })
+              .catch(() => resolve(30));
+
+            setTimeout(() => {
+              tmp.pause();
+              resolve(30);
+            }, 3000);
+          });
+        }
+
+        const fps = detectedFps;
         setVideoMeta({
           src,
           fps,
@@ -208,6 +284,11 @@ export const Viewport = () => {
         setPoseEnabled(false);
         setShowPosePanel(false);
         setLandmarkVisibility(buildDefaultVisibility());
+        setShowTrimCropPanel(false);
+        setCropRect(null);
+        setDrawingCrop(false);
+        setShowCropOverlay(false);
+        setTrimPoints({ inPoint: 0, outPoint: tmp.duration });
         resetTransform();
       };
     },
@@ -235,6 +316,14 @@ export const Viewport = () => {
     },
     [],
   );
+
+  // Stable ref callback that adds the wheel-stop listener exactly once per element
+  const stopWheel = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    el.addEventListener('wheel', (e) => e.stopPropagation(), {
+      passive: false,
+    });
+  }, []);
 
   const handleUploadClick = () => fileInputRef.current?.click();
 
@@ -321,7 +410,7 @@ export const Viewport = () => {
         className="flex-1 border border-zinc-400 dark:border-zinc-600 overflow-hidden relative bg-black select-none"
         style={{
           cursor:
-            calibrating || measuring
+            calibrating || measuring || drawingCrop
               ? 'crosshair'
               : transform.scale > 1
                 ? 'grab'
@@ -351,6 +440,9 @@ export const Viewport = () => {
                 isMuted={isMuted}
                 onTimeUpdate={setCurrentTime}
                 onVideoReady={handleVideoReady}
+                onLoadingChange={(loading) => {
+                  if (!exportingRef.current) setVideoLoading(loading);
+                }}
               />
               {/* Pose overlay lives inside transform wrapper — stays registered to video */}
               {poseEnabled && (
@@ -362,6 +454,33 @@ export const Viewport = () => {
                 />
               )}
             </div>
+
+            {/* Loading spinner — shown during seek/buffer, hidden during export */}
+            {videoLoading && exportStatus === 'idle' && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="flex flex-col items-center gap-2">
+                  <div className="w-6 h-6 border-2 border-zinc-600 border-t-sky-400 rounded-full animate-spin" />
+                  <span className="text-[8px] uppercase tracking-widest text-zinc-500">
+                    Loading
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Crop overlay */}
+            <CropOverlay
+              active={drawingCrop || showCropOverlay}
+              cropRect={cropRect}
+              videoWidth={videoMeta.width}
+              videoHeight={videoMeta.height}
+              transform={transform}
+              onCropChange={(rect) => setCropRect(rect)}
+              onCropComplete={(rect) => {
+                setCropRect(rect);
+                setDrawingCrop(false);
+                setShowCropOverlay(true);
+              }}
+            />
 
             <CalibrationOverlay
               key={calibrationKey}
@@ -418,17 +537,142 @@ export const Viewport = () => {
               </div>
             )}
 
+            {/* Trim & Crop panel */}
+            {showTrimCropPanel && videoMeta && (
+              <div
+                className="absolute top-0 bottom-0 w-56 border-l border-zinc-400 dark:border-zinc-600 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm"
+                style={{
+                  right:
+                    (showPosePanel ? 224 : 0) +
+                    (showMeasurementPanel ? 224 : 0),
+                }}
+                ref={stopWheel}
+              >
+                <TrimCropPanel
+                  duration={videoMeta.duration}
+                  fps={fps}
+                  currentTime={currentTime}
+                  cropRect={cropRect}
+                  trimPoints={trimPoints}
+                  videoMeta={{
+                    width: videoMeta.width,
+                    height: videoMeta.height,
+                    title: videoMeta.title,
+                  }}
+                  onSetTrimIn={() =>
+                    setTrimPoints((p) => ({
+                      inPoint: currentTime,
+                      outPoint: Math.max(p.outPoint, currentTime),
+                    }))
+                  }
+                  onSetTrimOut={() =>
+                    setTrimPoints((p) => ({
+                      inPoint: Math.min(p.inPoint, currentTime),
+                      outPoint: currentTime,
+                    }))
+                  }
+                  onClearTrim={() =>
+                    setTrimPoints({ inPoint: 0, outPoint: videoMeta.duration })
+                  }
+                  onSeekTo={(t) => handleSeekToFrame(Math.round(t * fps))}
+                  onSetTrimInTo={(t) =>
+                    setTrimPoints((p) => ({
+                      inPoint: Math.max(0, Math.min(t, p.outPoint - 1 / fps)),
+                      outPoint: p.outPoint,
+                    }))
+                  }
+                  onSetTrimOutTo={(t) =>
+                    setTrimPoints((p) => ({
+                      inPoint: p.inPoint,
+                      outPoint: Math.min(
+                        videoMeta.duration,
+                        Math.max(t, p.inPoint + 1 / fps),
+                      ),
+                    }))
+                  }
+                  onStartCropDraw={() => {
+                    setIsPlaying(false);
+                    setDrawingCrop(true);
+                    setShowCropOverlay(true);
+                  }}
+                  onClearCrop={() => {
+                    setCropRect(null);
+                    setShowCropOverlay(false);
+                    setDrawingCrop(false);
+                  }}
+                  onExport={(mode) =>
+                    startExport(mode, (url, w, h) => {
+                      // Clear crop immediately — don't wait for metadata
+                      setCropRect(null);
+                      setShowCropOverlay(false);
+                      setDrawingCrop(false);
+
+                      if (videoMeta?.src) URL.revokeObjectURL(videoMeta.src);
+
+                      const tmp = document.createElement('video');
+                      tmp.src = url;
+                      tmp.muted = true;
+                      tmp.preload = 'auto';
+
+                      tmp.onloadedmetadata = () => {
+                        if (isFinite(tmp.duration) && tmp.duration > 0) {
+                          applyReplace(url, w, h, tmp.duration);
+                        } else {
+                          // WebM from captureStream often has Infinity duration.
+                          // Seek to a large number forces the browser to scan and resolve it.
+                          tmp.currentTime = 1e10;
+                          tmp.onseeked = () => {
+                            tmp.onseeked = null;
+                            applyReplace(url, w, h, tmp.duration);
+                          };
+                        }
+                      };
+
+                      const applyReplace = (
+                        src: string,
+                        w: number,
+                        h: number,
+                        dur: number,
+                      ) => {
+                        const safeDur = isFinite(dur)
+                          ? dur
+                          : trimPoints.outPoint - trimPoints.inPoint;
+                        setVideoMeta({
+                          src,
+                          fps,
+                          title: videoMeta.title + '_clip',
+                          width: w,
+                          height: h,
+                          totalFrames: Math.floor(safeDur * fps),
+                          duration: safeDur,
+                        });
+                        setCurrentTime(0);
+                        setIsPlaying(false);
+                        setPlaybackRate(1);
+                        setStartFrame(null);
+                        setCalibration(null);
+                        setCalibrating(false);
+                        setMeasuring(false);
+                        setMeasurements([]);
+                        setShowMeasurementPanel(false);
+                        setTrimPoints({ inPoint: 0, outPoint: safeDur });
+                        resetTransform();
+                      };
+                    })
+                  }
+                  exportStatus={exportStatus}
+                  exportProgress={exportProgress}
+                  onClose={() => setShowTrimCropPanel(false)}
+                />
+              </div>
+            )}
+
             {/* Pose panel */}
             {showPosePanel && (
               <div
                 className="absolute top-0 right-0 bottom-0 w-56 border-l border-zinc-400 dark:border-zinc-600 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm"
                 style={{ right: showMeasurementPanel ? '224px' : '0' }}
-                ref={(el) => {
-                  if (!el) return;
-                  el.addEventListener('wheel', (e) => e.stopPropagation(), {
-                    passive: false,
-                  });
-                }}
+                ref={stopWheel}
               >
                 <PosePanel
                   visibilityMap={landmarkVisibility}
@@ -445,12 +689,7 @@ export const Viewport = () => {
             {showMeasurementPanel && (
               <div
                 className="absolute top-0 right-0 bottom-0 w-56 border-l border-zinc-400 dark:border-zinc-600 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm"
-                ref={(el) => {
-                  if (!el) return;
-                  el.addEventListener('wheel', (e) => e.stopPropagation(), {
-                    passive: false,
-                  });
-                }}
+                ref={stopWheel}
               >
                 <MeasurementPanel
                   measurements={measurements}
@@ -549,6 +788,8 @@ export const Viewport = () => {
           poseStatus={poseStatus}
           showPosePanel={showPosePanel}
           onTogglePosePanel={() => setShowPosePanel((v) => !v)}
+          showTrimCropPanel={showTrimCropPanel}
+          onToggleTrimCropPanel={() => setShowTrimCropPanel((v) => !v)}
           disabled={!videoMeta}
         />
       </div>

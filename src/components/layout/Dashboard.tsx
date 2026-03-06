@@ -15,7 +15,7 @@ const TELEMETRY_DEFAULT = 260; // px
 const COLLAPSED_WIDTH = 20; // px — slim strip
 
 export const Dashboard = () => {
-  const [telemetryOpen, setTelemetryOpen] = useState(true);
+  const [telemetryOpen, setTelemetryOpen] = useState(false);
   const [telemetryWidth, setTelemetryWidth] = useState(TELEMETRY_DEFAULT);
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);

@@ -15,6 +15,7 @@ import {
   PanelRight,
   ScanLine,
   Settings2,
+  Scissors,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -62,6 +63,8 @@ interface ControlPanelProps {
   poseStatus: LandmarkerStatus;
   showPosePanel: boolean;
   onTogglePosePanel: () => void;
+  showTrimCropPanel: boolean;
+  onToggleTrimCropPanel: () => void;
   disabled?: boolean;
 }
 
@@ -145,6 +148,8 @@ export function ControlPanel({
   poseStatus,
   showPosePanel,
   onTogglePosePanel,
+  showTrimCropPanel,
+  onToggleTrimCropPanel,
   disabled = false,
 }: ControlPanelProps) {
   const effectiveFps = (fps || 30) * (playbackRate || 1);
@@ -481,6 +486,17 @@ export function ControlPanel({
               disabled={!poseEnabled}
             >
               <Settings2 size={14} />
+            </IconBtn>
+
+            <div className="h-6 w-px bg-zinc-300 dark:bg-zinc-600 mx-1" />
+
+            {/* Trim & crop */}
+            <IconBtn
+              onClick={onToggleTrimCropPanel}
+              tooltip={showTrimCropPanel ? 'Hide trim & crop' : 'Trim & crop'}
+              active={showTrimCropPanel}
+            >
+              <Scissors size={14} />
             </IconBtn>
 
             {/* Keyboard hints */}
