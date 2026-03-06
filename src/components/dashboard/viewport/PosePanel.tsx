@@ -1,7 +1,3 @@
-// ─── Pose Panel ─────────────────────────────────────────────────────────────
-// Right-side panel for toggling individual landmarks and labels.
-// Groups landmarks by region with a region-level toggle.
-
 import { X, Eye, EyeOff } from 'lucide-react';
 import {
   Tooltip,
@@ -38,7 +34,10 @@ export const PosePanel = ({
 }: Props) => {
   return (
     <TooltipProvider delayDuration={400}>
-      <div className="flex flex-col h-full bg-white dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 select-none">
+      <div
+        className="flex flex-col h-full bg-white dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 select-none"
+        onWheel={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="h-5 shrink-0 border-b border-zinc-400 dark:border-zinc-600 flex items-center px-3 gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-violet-400" />
@@ -46,12 +45,11 @@ export const PosePanel = ({
             Pose Landmarks
           </span>
           <div className="ml-auto flex items-center gap-2">
-            {/* Labels toggle */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   onClick={onToggleLabels}
-                  className={`text-[9px] uppercase tracking-widest transition-colors cursor-pointer ${showLabels ? 'text-sky-500' : 'text-zinc-500 hover:text-zinc-300'}`}
+                  className={`transition-colors cursor-pointer ${showLabels ? 'text-sky-500' : 'text-zinc-500 hover:text-zinc-300'}`}
                 >
                   {showLabels ? <Eye size={10} /> : <EyeOff size={10} />}
                 </button>
@@ -60,7 +58,6 @@ export const PosePanel = ({
                 {showLabels ? 'Hide hover labels' : 'Show hover labels'}
               </TooltipContent>
             </Tooltip>
-
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -81,10 +78,9 @@ export const PosePanel = ({
             const regionLandmarks = LANDMARKS.filter((l) => l.region === key);
             const allOn = regionLandmarks.every((l) => visibilityMap[l.index]);
             const color = REGION_COLORS[key];
-
             return (
               <div key={key}>
-                {/* Region header row */}
+                {/* Region header */}
                 <div className="flex items-center gap-2 px-3 py-1 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 sticky top-0">
                   <div
                     className="w-1.5 h-1.5 rounded-full shrink-0"

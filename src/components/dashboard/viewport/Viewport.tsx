@@ -423,6 +423,12 @@ export const Viewport = () => {
               <div
                 className="absolute top-0 right-0 bottom-0 w-56 border-l border-zinc-400 dark:border-zinc-600 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm"
                 style={{ right: showMeasurementPanel ? '224px' : '0' }}
+                ref={(el) => {
+                  if (!el) return;
+                  el.addEventListener('wheel', (e) => e.stopPropagation(), {
+                    passive: false,
+                  });
+                }}
               >
                 <PosePanel
                   visibilityMap={landmarkVisibility}
@@ -437,7 +443,15 @@ export const Viewport = () => {
 
             {/* Measurement panel */}
             {showMeasurementPanel && (
-              <div className="absolute top-0 right-0 bottom-0 w-56 border-l border-zinc-400 dark:border-zinc-600 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm">
+              <div
+                className="absolute top-0 right-0 bottom-0 w-56 border-l border-zinc-400 dark:border-zinc-600 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm"
+                ref={(el) => {
+                  if (!el) return;
+                  el.addEventListener('wheel', (e) => e.stopPropagation(), {
+                    passive: false,
+                  });
+                }}
+              >
                 <MeasurementPanel
                   measurements={measurements}
                   onDelete={(id) =>
