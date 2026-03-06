@@ -2,8 +2,6 @@
 
 TODO
 
-- Separate measurement of angles from distances but put them in the same panel just different sections. Otherwise give them the same behaviors
-- Increase the size of the No Video Loaded thing and make the white brighter in
 - Will need to refactor the folders to create separation of concerns
 
 - Switch from MediaPipe to something else like MMPose or OpenPose or MoveNet for accuracy. Will need a backend server in Python? Possible to host on Firebase? If using a separate backend server, will probably have to account for free tiers hibernating or shutting down after inactivity so will have to warm it up?
