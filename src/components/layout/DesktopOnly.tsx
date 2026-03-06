@@ -36,7 +36,7 @@ export function DesktopOnly({ children }: { children: React.ReactNode }) {
         <div className="border border-zinc-400 dark:border-zinc-600 bg-white dark:bg-zinc-950 w-full max-w-sm">
           {/* Card header */}
           <div className="h-5 border-b border-zinc-400 dark:border-zinc-600 flex items-center px-3 gap-2">
-            <div className="w-1.5 h-1.5 rounded-full bg-orange-400" />
+            <div className="w-1.5 h-1.5 rounded-full bg-sky-400" />
             <span className="text-[0.8rem] uppercase tracking-[0.2em] text-zinc-700 dark:text-zinc-300 font-mono">
               Display Warning
             </span>
@@ -61,13 +61,13 @@ export function DesktopOnly({ children }: { children: React.ReactNode }) {
 
             {/* Width readout */}
             <div className="w-full border-t border-zinc-300 dark:border-zinc-700 pt-4 flex justify-between items-center">
-              <span className="text-[0.8rem] uppercase tracking-widest text-zinc-500 dark:text-zinc-500 font-mono">
+              <span className="text-[0.8rem] uppercase tracking-widest text-zinc-700 font-mono">
                 Detected
               </span>
-              <span className="text-xs text-orange-500 dark:text-orange-400 tabular-nums font-mono">
+              <span className="text-xs text-sky-500 dark:text-sky-400 tabular-nums font-mono">
                 {width}px
               </span>
-              <span className="text-[0.8rem] uppercase tracking-widest text-zinc-500 dark:text-zinc-500 font-mono">
+              <span className="text-[0.8rem] uppercase tracking-widest text-zinc-700 font-mono">
                 Min {MIN_WIDTH}px
               </span>
             </div>
