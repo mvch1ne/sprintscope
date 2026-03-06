@@ -100,7 +100,13 @@ export const Viewport = () => {
   const totalFrames = videoMeta?.totalFrames ?? 0;
   const currentFrame = Math.floor(currentTime * fps);
 
-  const { exportStatus, exportProgress, startExport } = useExport({
+  const {
+    exportStatus,
+    exportProgress,
+    lastExportUrl,
+    lastExportTitle,
+    startExport,
+  } = useExport({
     videoElRef,
     exportingRef,
     videoWidth: videoMeta?.width ?? 0,
@@ -662,6 +668,8 @@ export const Viewport = () => {
                   }
                   exportStatus={exportStatus}
                   exportProgress={exportProgress}
+                  lastExportUrl={lastExportUrl}
+                  lastExportTitle={lastExportTitle}
                   onClose={() => setShowTrimCropPanel(false)}
                 />
               </div>

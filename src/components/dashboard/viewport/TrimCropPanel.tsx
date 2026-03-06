@@ -53,6 +53,8 @@ interface Props {
   onExport: (mode: ExportMode) => void;
   exportStatus: ExportStatus;
   exportProgress: number;
+  lastExportUrl: string | null;
+  lastExportTitle: string | null;
   onClose: () => void;
 }
 
@@ -82,6 +84,8 @@ export const TrimCropPanel = ({
   onExport,
   exportStatus,
   exportProgress,
+  lastExportUrl,
+  lastExportTitle,
   onClose,
 }: Props) => {
   const [exportMode, setExportMode] = useState<ExportMode>('replace');
@@ -402,9 +406,20 @@ export const TrimCropPanel = ({
             )}
 
             {exportStatus === 'done' && (
-              <span className="text-[8px] text-emerald-400 uppercase tracking-widest">
-                Done
-              </span>
+              <div className="flex flex-col gap-2">
+                <span className="text-[8px] text-emerald-400 uppercase tracking-widest">
+                  Done
+                </span>
+                {lastExportUrl && exportMode === 'replace' && (
+                  <a
+                    href={lastExportUrl}
+                    download={`${lastExportTitle ?? 'clip'}_clip.webm`}
+                    className="w-full py-1.5 text-[9px] uppercase tracking-widest border border-zinc-600 text-zinc-400 hover:border-sky-500 hover:text-sky-400 transition-colors cursor-pointer rounded-sm text-center block"
+                  >
+                    Download copy
+                  </a>
+                )}
+              </div>
             )}
             {exportStatus === 'error' && (
               <span className="text-[8px] text-red-400 uppercase tracking-widest">

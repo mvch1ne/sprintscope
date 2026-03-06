@@ -24,6 +24,8 @@ interface UseExportOptions {
 interface UseExportReturn {
   exportStatus: ExportStatus;
   exportProgress: number;
+  lastExportUrl: string | null;
+  lastExportTitle: string | null;
   startExport: (
     mode: 'replace' | 'download',
     onReplace: (url: string, w: number, h: number) => void,
@@ -76,6 +78,8 @@ export function useExport({
 }: UseExportOptions): UseExportReturn {
   const [exportStatus, setExportStatus] = useState<ExportStatus>('idle');
   const [exportProgress, setExportProgress] = useState(0);
+  const [lastExportUrl, setLastExportUrl] = useState<string | null>(null);
+  const [lastExportTitle, setLastExportTitle] = useState<string | null>(null);
   const abortRef = useRef(false);
 
   const optsRef = useRef({
@@ -188,6 +192,9 @@ export function useExport({
         const blob = new Blob(chunks, { type: mimeType });
         const url = URL.createObjectURL(blob);
 
+        setLastExportUrl(url);
+        setLastExportTitle(title);
+
         if (mode === 'download') {
           const a = document.createElement('a');
           a.href = url;
@@ -195,10 +202,8 @@ export function useExport({
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
-          setTimeout(() => URL.revokeObjectURL(url), 15_000);
         } else {
           onReplace(url, outW, outH);
-          setTimeout(() => URL.revokeObjectURL(url), 60_000);
         }
 
         setExportStatus('done');
@@ -212,5 +217,11 @@ export function useExport({
     [videoElRef, exportingRef],
   );
 
-  return { exportStatus, exportProgress, startExport };
+  return {
+    exportStatus,
+    exportProgress,
+    lastExportUrl,
+    lastExportTitle,
+    startExport,
+  };
 }
