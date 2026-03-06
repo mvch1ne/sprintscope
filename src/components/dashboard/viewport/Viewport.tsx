@@ -8,6 +8,11 @@ import type { CalibrationData } from './CalibrationOverlay';
 import { MeasurementOverlay } from './MeasurementOverlay';
 import { MeasurementPanel } from './MeasurementPanel';
 import type { Measurement } from './MeasurementOverlay';
+import { PoseOverlay } from './PoseOverlay';
+import { PosePanel } from './PosePanel';
+import { usePoseLandmarker } from './usePoseLandmarker';
+import { LANDMARKS, buildDefaultVisibility } from './poseConfig';
+import type { LandmarkDef } from './poseConfig';
 
 interface VideoMeta {
   src: string;
@@ -52,6 +57,20 @@ export const Viewport = () => {
     y: 0,
   });
 
+  // ── Pose ──────────────────────────────────────────────────────────────────
+  const [poseEnabled, setPoseEnabled] = useState(false);
+  const [showPosePanel, setShowPosePanel] = useState(false);
+  const [showPoseLabels, setShowPoseLabels] = useState(true);
+  const [landmarkVisibility, setLandmarkVisibility] = useState<
+    Record<number, boolean>
+  >(buildDefaultVisibility);
+  const videoElRef = useRef<HTMLVideoElement | null>(null);
+  const {
+    status: poseStatus,
+    result: poseResult,
+    detect,
+  } = usePoseLandmarker(poseEnabled);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const seekVideo = useRef<(time: number) => void>(() => {});
   const getVideoTime = useRef<() => number>(() => 0);
@@ -63,6 +82,12 @@ export const Viewport = () => {
   const fps = videoMeta?.fps ?? 30;
   const totalFrames = videoMeta?.totalFrames ?? 0;
   const currentFrame = Math.floor(currentTime * fps);
+
+  // ── Run pose detection on every frame change ──────────────────────────────
+  useEffect(() => {
+    if (!poseEnabled || poseStatus !== 'ready' || !videoElRef.current) return;
+    detect(videoElRef.current, currentTime * 1000);
+  }, [currentTime, poseEnabled, poseStatus, detect]);
 
   const clampPan = useCallback(
     (x: number, y: number, scale: number, el: HTMLElement) => {
@@ -180,6 +205,9 @@ export const Viewport = () => {
         setMeasuring(false);
         setMeasurements([]);
         setShowMeasurementPanel(false);
+        setPoseEnabled(false);
+        setShowPosePanel(false);
+        setLandmarkVisibility(buildDefaultVisibility());
         resetTransform();
       };
     },
@@ -196,14 +224,33 @@ export const Viewport = () => {
   );
 
   const handleVideoReady = useCallback(
-    (seek: (time: number) => void, getTime: () => number) => {
+    (
+      seek: (time: number) => void,
+      getTime: () => number,
+      videoEl: HTMLVideoElement,
+    ) => {
       seekVideo.current = seek;
       getVideoTime.current = getTime;
+      videoElRef.current = videoEl;
     },
     [],
   );
 
   const handleUploadClick = () => fileInputRef.current?.click();
+
+  const handleToggleLandmark = useCallback((index: number) => {
+    setLandmarkVisibility((prev) => ({ ...prev, [index]: !prev[index] }));
+  }, []);
+
+  const handleToggleRegion = useCallback((region: LandmarkDef['region']) => {
+    const regionLandmarks = LANDMARKS.filter((l) => l.region === region);
+    setLandmarkVisibility((prev) => {
+      const allOn = regionLandmarks.every((l) => prev[l.index]);
+      const next = { ...prev };
+      for (const l of regionLandmarks) next[l.index] = !allOn;
+      return next;
+    });
+  }, []);
   const zoomLabel =
     transform.scale > 1 ? `${transform.scale.toFixed(1)}×` : null;
 
@@ -305,6 +352,15 @@ export const Viewport = () => {
                 onTimeUpdate={setCurrentTime}
                 onVideoReady={handleVideoReady}
               />
+              {/* Pose overlay lives inside transform wrapper — stays registered to video */}
+              {poseEnabled && (
+                <PoseOverlay
+                  result={poseResult}
+                  visibilityMap={landmarkVisibility}
+                  showLabels={showPoseLabels}
+                  transform={{ scale: 1, x: 0, y: 0 }}
+                />
+              )}
             </div>
 
             <CalibrationOverlay
@@ -359,6 +415,23 @@ export const Viewport = () => {
                     Done
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* Pose panel */}
+            {showPosePanel && (
+              <div
+                className="absolute top-0 right-0 bottom-0 w-56 border-l border-zinc-400 dark:border-zinc-600 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm"
+                style={{ right: showMeasurementPanel ? '224px' : '0' }}
+              >
+                <PosePanel
+                  visibilityMap={landmarkVisibility}
+                  showLabels={showPoseLabels}
+                  onToggleLandmark={handleToggleLandmark}
+                  onToggleRegion={handleToggleRegion}
+                  onToggleLabels={() => setShowPoseLabels((v) => !v)}
+                  onClose={() => setShowPosePanel(false)}
+                />
               </div>
             )}
 
@@ -457,6 +530,11 @@ export const Viewport = () => {
           measurementCount={measurements.length}
           showMeasurementPanel={showMeasurementPanel}
           onToggleMeasurementPanel={() => setShowMeasurementPanel((v) => !v)}
+          poseEnabled={poseEnabled}
+          onTogglePose={() => setPoseEnabled((v) => !v)}
+          poseStatus={poseStatus}
+          showPosePanel={showPosePanel}
+          onTogglePosePanel={() => setShowPosePanel((v) => !v)}
           disabled={!videoMeta}
         />
       </div>

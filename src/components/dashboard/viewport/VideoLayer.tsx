@@ -4,12 +4,13 @@ interface VideoLayerProps {
   src: string;
   playbackRate: number;
   isPlaying: boolean;
-  volume: number; // 0–1
+  volume: number;
   isMuted: boolean;
   onTimeUpdate: (currentTime: number) => void;
   onVideoReady: (
     seek: (time: number) => void,
     getCurrentTime: () => number,
+    videoEl: HTMLVideoElement,
   ) => void;
 }
 
@@ -34,6 +35,7 @@ export const VideoLayer = ({
         video.currentTime = time;
       },
       () => video.currentTime,
+      video,
     );
   }, [onVideoReady]);
 

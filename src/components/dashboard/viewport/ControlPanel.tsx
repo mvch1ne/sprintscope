@@ -13,6 +13,8 @@ import {
   Ruler,
   Crosshair,
   PanelRight,
+  ScanLine,
+  Settings2,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -28,6 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { CalibrationData } from './CalibrationOverlay';
+import type { LandmarkerStatus } from './usePoseLandmarker';
 
 const SPEED_OPTIONS = [0.25, 0.5, 1, 1.5, 2, 4];
 
@@ -54,6 +57,11 @@ interface ControlPanelProps {
   measurementCount: number;
   showMeasurementPanel: boolean;
   onToggleMeasurementPanel: () => void;
+  poseEnabled: boolean;
+  onTogglePose: () => void;
+  poseStatus: LandmarkerStatus;
+  showPosePanel: boolean;
+  onTogglePosePanel: () => void;
   disabled?: boolean;
 }
 
@@ -132,6 +140,11 @@ export function ControlPanel({
   measurementCount,
   showMeasurementPanel,
   onToggleMeasurementPanel,
+  poseEnabled,
+  onTogglePose,
+  poseStatus,
+  showPosePanel,
+  onTogglePosePanel,
   disabled = false,
 }: ControlPanelProps) {
   const effectiveFps = (fps || 30) * (playbackRate || 1);
@@ -433,6 +446,41 @@ export function ControlPanel({
               disabled={!calibration}
             >
               <PanelRight size={14} />
+            </IconBtn>
+
+            <div className="h-6 w-px bg-zinc-300 dark:bg-zinc-600 mx-1" />
+
+            {/* Pose detection toggle */}
+            <IconBtn
+              onClick={onTogglePose}
+              tooltip={
+                poseStatus === 'loading'
+                  ? 'Loading pose model…'
+                  : poseStatus === 'error'
+                    ? 'Pose model failed to load'
+                    : poseEnabled
+                      ? 'Disable pose detection'
+                      : 'Enable pose detection'
+              }
+              active={poseEnabled}
+            >
+              {poseStatus === 'loading' ? (
+                <span className="text-[8px] animate-pulse">…</span>
+              ) : (
+                <ScanLine size={14} />
+              )}
+            </IconBtn>
+
+            {/* Pose panel toggle */}
+            <IconBtn
+              onClick={onTogglePosePanel}
+              tooltip={
+                showPosePanel ? 'Hide landmark config' : 'Configure landmarks'
+              }
+              active={showPosePanel}
+              disabled={!poseEnabled}
+            >
+              <Settings2 size={14} />
             </IconBtn>
 
             {/* Keyboard hints */}
