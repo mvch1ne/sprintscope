@@ -8,7 +8,6 @@ import type { CalibrationData } from './CalibrationAndMeasurements/CalibrationOv
 import { MeasurementOverlay } from './CalibrationAndMeasurements/MeasurementOverlay';
 import { MeasurementPanel } from './CalibrationAndMeasurements/MeasurementPanel';
 import type { Measurement } from './CalibrationAndMeasurements/MeasurementOverlay';
-
 import { PoseOverlay } from './PoseEngine/PoseOverlay';
 import { PosePanel } from './PoseEngine/PosePanel';
 import { usePoseLandmarker } from './PoseEngine/usePoseLandmarker';
@@ -79,9 +78,12 @@ export const Viewport = () => {
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const {
     status: poseStatus,
-    result: poseResult,
-    detect,
-  } = usePoseLandmarker(poseEnabled);
+    frameWidth: poseFrameW,
+    frameHeight: poseFrameH,
+    getKeypoints,
+    analyseVideo,
+    reset: resetPose,
+  } = usePoseLandmarker();
 
   // ── Trim & Crop ───────────────────────────────────────────────────────────
   const [showTrimCropPanel, setShowTrimCropPanel] = useState(false);
@@ -122,11 +124,12 @@ export const Viewport = () => {
     title: videoMeta?.title ?? 'clip',
   });
 
-  // ── Run pose detection on every frame change ──────────────────────────────
+  // ── Trigger pose analysis when enabled ───────────────────────────────────
   useEffect(() => {
-    if (!poseEnabled || poseStatus !== 'ready' || !videoElRef.current) return;
-    detect(videoElRef.current, currentTime * 1000);
-  }, [currentTime, poseEnabled, poseStatus, detect]);
+    if (!poseEnabled || !videoMeta?.src) return;
+    analyseVideo(videoMeta.src);
+    return () => resetPose();
+  }, [poseEnabled, videoMeta?.src, analyseVideo, resetPose]);
 
   // ── Status bar reporting ──────────────────────────────────────────────────
   const { set: setStatus, clear: clearStatus } = useStatus();
@@ -359,6 +362,7 @@ export const Viewport = () => {
         setShowMeasurementPanel(false);
         setPoseEnabled(false);
         setShowPosePanel(false);
+        resetPose();
         setLandmarkVisibility(buildDefaultVisibility());
         setShowTrimCropPanel(false);
         setCropRect(null);
@@ -368,7 +372,7 @@ export const Viewport = () => {
         resetTransform();
       };
     },
-    [videoMeta, resetTransform],
+    [videoMeta, resetTransform, resetPose],
   );
 
   const handleSeekToFrame = useCallback(
@@ -526,12 +530,15 @@ export const Viewport = () => {
                 }}
               />
               {/* Pose overlay lives inside transform wrapper — stays registered to video */}
-              {poseEnabled && (
+              {poseEnabled && poseStatus === 'ready' && (
                 <PoseOverlay
-                  result={poseResult}
+                  keypoints={getKeypoints(currentFrame)}
+                  frameWidth={poseFrameW}
+                  frameHeight={poseFrameH}
+                  videoNatWidth={videoMeta.width}
+                  videoNatHeight={videoMeta.height}
                   visibilityMap={landmarkVisibility}
                   showLabels={showPoseLabels}
-                  transform={{ scale: 1, x: 0, y: 0 }}
                 />
               )}
             </div>

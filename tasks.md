@@ -2,6 +2,10 @@
 
 TODO
 
+- Add the feature to place markers (with optional labels) and then retroactively measure the distance between them
+- The button to turn off all pose landmarks doesn't work
+- Pose landmark is kinda slow from the server. Find a way to use GPU?
+- When using the export option, let the draw box disappear after I close the panel.
 - Switched to Movenet. Slightly more reliable than MediaPipe but still wildly inaccurate. Need to try something more accurate. If running a backend with Python is the cost then so be it. RTMPose or MMPose. I think they even have 3D versions? Could use that straight for the ThreeJS?
 - Work on the telemetry section
 
