@@ -1,6 +1,5 @@
 // ─── RTMPose Backend Hook ─────────────────────────────────────────────────────
-// Sends the entire video file once → gets back keypoints for every frame.
-// Stores as a Map<frameNumber, keypoints> so the overlay just does a lookup.
+// Uploads video as multipart, reads SSE stream for progress then final result.
 
 import { useRef, useState, useCallback } from 'react';
 
@@ -12,8 +11,8 @@ const BACKEND_URL =
     ?.VITE_POSE_BACKEND_URL ?? 'http://localhost:8080';
 
 export interface Keypoint {
-  x: number; // raw pixel x in original video frame
-  y: number; // raw pixel y in original video frame
+  x: number;
+  y: number;
   score: number;
 }
 
@@ -21,6 +20,7 @@ export type LandmarkerStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 interface UsePoseLandmarkerReturn {
   status: LandmarkerStatus;
+  progress: { frame: number; total: number; pct: number } | null;
   frameWidth: number;
   frameHeight: number;
   getKeypoints: (frame: number) => Keypoint[];
@@ -30,6 +30,11 @@ interface UsePoseLandmarkerReturn {
 
 export function usePoseLandmarker(): UsePoseLandmarkerReturn {
   const [status, setStatus] = useState<LandmarkerStatus>('idle');
+  const [progress, setProgress] = useState<{
+    frame: number;
+    total: number;
+    pct: number;
+  } | null>(null);
   const [frameWidth, setFrameWidth] = useState(0);
   const [frameHeight, setFrameHeight] = useState(0);
   const frameMapRef = useRef<Map<number, Keypoint[]>>(new Map());
@@ -41,6 +46,7 @@ export function usePoseLandmarker(): UsePoseLandmarkerReturn {
   const reset = useCallback(() => {
     frameMapRef.current.clear();
     setStatus('idle');
+    setProgress(null);
     setFrameWidth(0);
     setFrameHeight(0);
   }, []);
@@ -51,45 +57,69 @@ export function usePoseLandmarker(): UsePoseLandmarkerReturn {
       setStatus('loading');
 
       try {
-        // Fetch the blob URL and convert to base64
         const blob = await fetch(videoSrc).then((r) => r.blob());
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
+        const form = new FormData();
+        form.append('file', blob, 'video');
 
         const res = await fetch(`${BACKEND_URL}/infer/video`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ video: base64 }),
+          body: form,
         });
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.body) throw new Error('No response body');
 
-        const data = (await res.json()) as {
-          fps: number;
-          frame_width: number;
-          frame_height: number;
-          frames: { frame: number; keypoints: Keypoint[] }[];
-        };
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-        // Build the lookup map
-        const map = new Map<number, Keypoint[]>();
-        for (const f of data.frames) map.set(f.frame, f.keypoints);
-        frameMapRef.current = map;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        setFrameWidth(data.frame_width);
-        setFrameHeight(data.frame_height);
-        setStatus('ready');
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? ''; // keep incomplete line
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const msg = JSON.parse(line.slice(6));
+
+            if (msg.type === 'progress') {
+              setProgress({ frame: msg.frame, total: msg.total, pct: msg.pct });
+            } else if (msg.type === 'result') {
+              const map = new Map<number, Keypoint[]>();
+              (msg.frames as number[][]).forEach((flat, frameIdx) => {
+                const kps: Keypoint[] = [];
+                for (let i = 0; i < flat.length; i += 3) {
+                  kps.push({ x: flat[i], y: flat[i + 1], score: flat[i + 2] });
+                }
+                map.set(frameIdx, kps);
+              });
+              frameMapRef.current = map;
+              setFrameWidth(msg.frame_width);
+              setFrameHeight(msg.frame_height);
+              setProgress(null);
+              setStatus('ready');
+            }
+          }
+        }
       } catch (err) {
         console.error('[RTMPose]', err);
         setStatus('error');
+        setProgress(null);
       }
     },
     [reset],
   );
 
-  return { status, frameWidth, frameHeight, getKeypoints, analyseVideo, reset };
+  return {
+    status,
+    progress,
+    frameWidth,
+    frameHeight,
+    getKeypoints,
+    analyseVideo,
+    reset,
+  };
 }

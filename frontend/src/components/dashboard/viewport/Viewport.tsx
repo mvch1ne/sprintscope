@@ -78,6 +78,7 @@ export const Viewport = () => {
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const {
     status: poseStatus,
+    progress: poseProgress,
     frameWidth: poseFrameW,
     frameHeight: poseFrameH,
     getKeypoints,
@@ -208,18 +209,27 @@ export const Viewport = () => {
 
   // Pose
   useEffect(() => {
-    if (poseEnabled)
+    if (!poseEnabled) {
+      clearStatus('pose');
+      return;
+    }
+    if (poseStatus === 'ready') {
+      setStatus('pose', 'pose', 'active', { accent: 'emerald' });
+    } else if (poseStatus === 'error') {
+      setStatus('pose', 'pose', 'error — is the server running?', {
+        accent: 'red',
+      });
+    } else if (poseProgress) {
       setStatus(
         'pose',
         'pose',
-        poseStatus === 'ready' ? 'active' : 'loading…',
-        {
-          accent: poseStatus === 'ready' ? 'emerald' : 'amber',
-          pulse: poseStatus !== 'ready',
-        },
+        `analysing  ${poseProgress.frame} / ${poseProgress.total}  (${poseProgress.pct}%)`,
+        { accent: 'amber', pulse: true },
       );
-    else clearStatus('pose');
-  }, [poseEnabled, poseStatus, setStatus, clearStatus]);
+    } else {
+      setStatus('pose', 'pose', 'uploading…', { accent: 'amber', pulse: true });
+    }
+  }, [poseEnabled, poseStatus, poseProgress, setStatus, clearStatus]);
 
   // Zoom
   useEffect(() => {

@@ -30,11 +30,11 @@ export const LANDMARKS: LandmarkDef[] = [
   { index: 15, name: 'Left Ankle', region: 'lower' },
   { index: 16, name: 'Right Ankle', region: 'lower' },
   // Feet — big toe + heel on (ground contact), small toe off
-  { index: 17, name: 'Left Big Toe', region: 'lower', defaultOff: true },
-  { index: 18, name: 'Left Small Toe', region: 'lower', defaultOff: true },
+  { index: 17, name: 'Left Big Toe', region: 'lower' },
+  { index: 18, name: 'Left Small Toe', region: 'lower' },
   { index: 19, name: 'Left Heel', region: 'lower', defaultOff: true },
-  { index: 20, name: 'Right Big Toe', region: 'lower', defaultOff: true },
-  { index: 21, name: 'Right Small Toe', region: 'lower', defaultOff: true },
+  { index: 20, name: 'Right Big Toe', region: 'lower' },
+  { index: 21, name: 'Right Small Toe', region: 'lower' },
   { index: 22, name: 'Right Heel', region: 'lower', defaultOff: true },
   // Extra face — all off
   { index: 23, name: 'Left Eye Center', region: 'face', defaultOff: true },
