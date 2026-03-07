@@ -7,8 +7,6 @@ import {
   ChevronFirst,
   ChevronLast,
   Gauge,
-  Volume2,
-  VolumeX,
   Flag,
   Ruler,
   Crosshair,
@@ -45,10 +43,6 @@ interface ControlPanelProps {
   videoEnded: boolean;
   playbackRate: number;
   setPlaybackRate: (v: number) => void;
-  volume: number;
-  setVolume: (v: number) => void;
-  isMuted: boolean;
-  setIsMuted: (v: boolean) => void;
   onSeekToFrame: (frame: number) => void;
   startFrame: number | null;
   onSetStartFrame: () => void;
@@ -124,7 +118,6 @@ function Readout({ label, value }: { label: string; value: string }) {
   );
 }
 
-// ── Time Ruler ────────────────────────────────────────────────────────────────
 function TimeRuler({
   totalFrames,
   fps,
@@ -214,7 +207,6 @@ function TimeRuler({
 
   return (
     <div className="px-4 pb-1 pt-0.5 flex flex-col gap-1">
-      {/* Rail */}
       <div
         ref={railRef}
         className="relative h-3 bg-zinc-200 dark:bg-zinc-800 rounded-full cursor-crosshair select-none"
@@ -222,14 +214,12 @@ function TimeRuler({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
       >
-        {/* Span highlight */}
         {lo !== null && hi !== null && (
           <div
             className="absolute top-0 h-full bg-amber-400/30 rounded-full pointer-events-none"
             style={{ left: `${lo}%`, width: `${hi - lo}%` }}
           />
         )}
-        {/* Marker A */}
         {markerA !== null && (
           <div
             className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-amber-400 border-2 border-zinc-950 cursor-ew-resize z-10 touch-none"
@@ -241,7 +231,6 @@ function TimeRuler({
             </span>
           </div>
         )}
-        {/* Marker B */}
         {markerB !== null && (
           <div
             className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-sky-400 border-2 border-zinc-950 cursor-ew-resize z-10 touch-none"
@@ -254,8 +243,6 @@ function TimeRuler({
           </div>
         )}
       </div>
-
-      {/* Delta readout row */}
       <div className="flex items-center gap-3 h-4">
         <span className="text-[10px] uppercase tracking-widest text-zinc-500 shrink-0 font-mono">
           Δt
@@ -291,7 +278,6 @@ function TimeRuler({
   );
 }
 
-// ── ControlPanel ──────────────────────────────────────────────────────────────
 export function ControlPanel({
   currentFrame,
   totalFrames,
@@ -301,10 +287,6 @@ export function ControlPanel({
   videoEnded,
   playbackRate,
   setPlaybackRate,
-  volume,
-  setVolume,
-  isMuted,
-  setIsMuted,
   onSeekToFrame,
   startFrame,
   onSetStartFrame,
@@ -331,6 +313,7 @@ export function ControlPanel({
   const frameDuration = 1 / (fps || 30);
   const fpsDisplay = disabled ? '—' : `${effectiveFps}`;
   const deltaDisplay = disabled ? '—' : `${frameDuration.toFixed(4)}s`;
+
   const frameToTimecode = (frame: number) => {
     const f = Math.max(0, frame);
     const totalSecs = f / (fps || 30);
@@ -340,6 +323,7 @@ export function ControlPanel({
     const secs = (totalSecs % 60).toFixed(4).padStart(7, '0');
     return `${mins}:${secs}`;
   };
+
   const relativeFrame = startFrame !== null ? currentFrame - startFrame : null;
   const absRelFrame = relativeFrame !== null ? Math.abs(relativeFrame) : null;
   const timePrefix = relativeFrame !== null && relativeFrame < 0 ? '−' : '';
@@ -363,7 +347,6 @@ export function ControlPanel({
     onSeekToFrame(totalFrames - 1);
   };
 
-  // Keyboard controls
   useEffect(() => {
     if (disabled) return;
     const onKey = (e: KeyboardEvent) => {
@@ -374,9 +357,7 @@ export function ControlPanel({
         if (videoEnded) {
           onSeekToFrame(0);
           setIsPlaying(true);
-        } else {
-          setIsPlaying((p) => !p);
-        }
+        } else setIsPlaying((p) => !p);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -408,7 +389,6 @@ export function ControlPanel({
       <div
         className={`ControlPanelContainer h-full w-full flex flex-col bg-white dark:bg-zinc-950 dark:text-zinc-200 transition-opacity ${disabled ? 'opacity-40 pointer-events-none' : ''}`}
       >
-        {/* Top label bar */}
         <div className="TopBar h-5 shrink-0 border border-b-0 border-zinc-400 dark:border-zinc-600 flex items-center px-3 gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-sky-500" />
           <span className="text-[11px] uppercase tracking-[0.2em] text-zinc-700 dark:text-zinc-300">
@@ -424,7 +404,6 @@ export function ControlPanel({
           </div>
         </div>
 
-        {/* Main controls */}
         <div className="MainControls flex-1 border border-t-0 border-zinc-400 dark:border-zinc-600 flex flex-col overflow-hidden">
           {/* Scrubber */}
           <div className="ScrubberSection px-4 pt-2 pb-1">
@@ -447,7 +426,6 @@ export function ControlPanel({
                   style={{ left: `${(i / 24) * 100}%` }}
                 />
               ))}
-              {/* Start frame marker */}
               {startFrame !== null && totalFrames > 1 && (
                 <div
                   className="-top-1 -bottom-1 absolute w-px bg-orange-400"
@@ -457,7 +435,6 @@ export function ControlPanel({
             </div>
           </div>
 
-          {/* Time ruler — Δt between two draggable markers */}
           <TimeRuler
             totalFrames={totalFrames}
             fps={fps}
@@ -465,7 +442,7 @@ export function ControlPanel({
             onSeekToFrame={onSeekToFrame}
           />
 
-          {/* Timecode readouts */}
+          {/* Readouts */}
           <div className="ReadoutsRow flex justify-between items-center px-4 pt-1 pb-0.5">
             <Readout
               label={startFrame !== null ? 'Rel. Frame' : 'Frame'}
@@ -483,10 +460,9 @@ export function ControlPanel({
             <Readout label="∆/frame" value={deltaDisplay} />
           </div>
 
-          {/* Divider */}
           <div className="mx-4 border-t border-zinc-400 dark:border-zinc-600/60" />
 
-          {/* Transport controls */}
+          {/* Transport */}
           <div className="ControlInputSection flex flex-1 items-center px-4 gap-2 flex-wrap">
             <IconBtn onClick={jumpToStart} tooltip="Jump to start">
               <ChevronFirst size={14} />
@@ -499,7 +475,6 @@ export function ControlPanel({
               <SkipBack size={14} />
             </IconBtn>
 
-            {/* Play / Pause */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -507,19 +482,14 @@ export function ControlPanel({
                     if (videoEnded) {
                       onSeekToFrame(0);
                       setIsPlaying(true);
-                    } else {
-                      setIsPlaying((p) => !p);
-                    }
+                    } else setIsPlaying((p) => !p);
                   }}
-                  className={`
-                    flex items-center justify-center w-9 h-9 rounded-sm
-                    border transition-all duration-150 cursor-pointer
+                  className={`flex items-center justify-center w-9 h-9 rounded-sm border transition-all duration-150 cursor-pointer
                     ${
                       isPlaying
                         ? 'bg-sky-500 border-sky-400 text-white shadow-[0_0_12px_rgba(14,165,233,0.4)] dark:bg-sky-600 dark:border-sky-500'
                         : 'bg-zinc-100 border-zinc-400 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 hover:border-zinc-500 dark:bg-zinc-950 dark:border-zinc-600 dark:hover:bg-zinc-800'
-                    }
-                  `}
+                    }`}
                 >
                   {isPlaying ? <Pause size={16} /> : <Play size={16} />}
                 </button>
@@ -542,7 +512,6 @@ export function ControlPanel({
 
             <div className="h-6 w-px bg-zinc-300 dark:bg-zinc-600 mx-1" />
 
-            {/* Speed selector */}
             <Select
               value={String(playbackRate)}
               onValueChange={(v) => setPlaybackRate(Number(v))}
@@ -562,40 +531,6 @@ export function ControlPanel({
 
             <div className="h-6 w-px bg-zinc-300 dark:bg-zinc-600 mx-1" />
 
-            {/* Audio controls */}
-            <IconBtn
-              onClick={() => setIsMuted(!isMuted)}
-              tooltip={isMuted ? 'Unmute (M)' : 'Mute (M)'}
-              active={isMuted}
-            >
-              {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
-            </IconBtn>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={isMuted ? 0 : volume}
-                  onChange={(e) => {
-                    const v = Number(e.target.value);
-                    setVolume(v);
-                    if (v > 0 && isMuted) setIsMuted(false);
-                    if (v === 0) setIsMuted(true);
-                  }}
-                  className="w-20 h-1.5 accent-sky-500 cursor-pointer"
-                />
-              </TooltipTrigger>
-              <TooltipContent>
-                Volume {Math.round((isMuted ? 0 : volume) * 100)}%
-              </TooltipContent>
-            </Tooltip>
-
-            <div className="h-6 w-px bg-zinc-300 dark:bg-zinc-600 mx-1" />
-
-            {/* Start time */}
             <IconBtn
               onClick={
                 startFrame !== null ? onClearStartFrame : onSetStartFrame
@@ -610,7 +545,6 @@ export function ControlPanel({
               <Flag size={14} />
             </IconBtn>
 
-            {/* Distance calibration */}
             <IconBtn
               onClick={onStartCalibration}
               tooltip={
@@ -623,7 +557,6 @@ export function ControlPanel({
               <Ruler size={14} />
             </IconBtn>
 
-            {/* Measure distance */}
             <IconBtn
               onClick={onToggleMeasuringDistance}
               tooltip={
@@ -639,7 +572,6 @@ export function ControlPanel({
               <Crosshair size={14} />
             </IconBtn>
 
-            {/* Measure angle */}
             <IconBtn
               onClick={onToggleMeasuringAngle}
               tooltip={
@@ -655,7 +587,6 @@ export function ControlPanel({
               <Triangle size={14} />
             </IconBtn>
 
-            {/* Measurement panel toggle */}
             <IconBtn
               onClick={onToggleMeasurementPanel}
               tooltip={
@@ -671,7 +602,6 @@ export function ControlPanel({
 
             <div className="h-6 w-px bg-zinc-300 dark:bg-zinc-600 mx-1" />
 
-            {/* Pose detection toggle */}
             <IconBtn
               onClick={onTogglePose}
               tooltip={
@@ -692,7 +622,6 @@ export function ControlPanel({
               )}
             </IconBtn>
 
-            {/* Pose panel toggle */}
             <IconBtn
               onClick={onTogglePosePanel}
               tooltip={
@@ -706,7 +635,6 @@ export function ControlPanel({
 
             <div className="h-6 w-px bg-zinc-300 dark:bg-zinc-600 mx-1" />
 
-            {/* Trim & crop */}
             <IconBtn
               onClick={onToggleTrimCropPanel}
               tooltip={showTrimCropPanel ? 'Hide trim & crop' : 'Trim & crop'}
@@ -715,7 +643,6 @@ export function ControlPanel({
               <Scissors size={14} />
             </IconBtn>
 
-            {/* Keyboard hints */}
             <div className="ml-auto flex items-center gap-2">
               {[
                 ['←→', 'step'],

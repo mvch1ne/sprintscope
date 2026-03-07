@@ -14,13 +14,22 @@ export interface Keypoint {
 }
 export type LandmarkerStatus = 'idle' | 'loading' | 'ready' | 'error';
 
+export interface PoseProgress {
+  frame: number;
+  total: number;
+  pct: number;
+  fps: number; // inference throughput fps
+  elapsed: number; // seconds elapsed
+  eta: number; // seconds remaining
+}
+
 interface UsePoseLandmarkerReturn {
   status: LandmarkerStatus;
-  progress: { frame: number; total: number; pct: number } | null;
+  progress: PoseProgress | null;
   frameWidth: number;
   frameHeight: number;
-  totalFrames: number; // ground truth frame count from backend
-  poseFps: number; // ground truth fps from backend (CAP_PROP_FPS)
+  totalFrames: number;
+  poseFps: number;
   getKeypoints: (frame: number) => Keypoint[];
   analyseVideo: (videoSrc: string) => Promise<void>;
   reset: () => void;
@@ -28,11 +37,7 @@ interface UsePoseLandmarkerReturn {
 
 export function usePoseLandmarker(): UsePoseLandmarkerReturn {
   const [status, setStatus] = useState<LandmarkerStatus>('idle');
-  const [progress, setProgress] = useState<{
-    frame: number;
-    total: number;
-    pct: number;
-  } | null>(null);
+  const [progress, setProgress] = useState<PoseProgress | null>(null);
   const [frameWidth, setFrameWidth] = useState(0);
   const [frameHeight, setFrameHeight] = useState(0);
   const [totalFrames, setTotalFrames] = useState(0);
@@ -40,7 +45,6 @@ export function usePoseLandmarker(): UsePoseLandmarkerReturn {
   const frameMapRef = useRef<Map<number, Keypoint[]>>(new Map());
 
   const getKeypoints = useCallback((frame: number): Keypoint[] => {
-    // Clamp to valid range so last frame never overflows
     const clamped = Math.max(0, Math.min(frame, frameMapRef.current.size - 1));
     return frameMapRef.current.get(clamped) ?? [];
   }, []);
@@ -87,7 +91,14 @@ export function usePoseLandmarker(): UsePoseLandmarkerReturn {
             const msg = JSON.parse(line.slice(6));
 
             if (msg.type === 'progress') {
-              setProgress({ frame: msg.frame, total: msg.total, pct: msg.pct });
+              setProgress({
+                frame: msg.frame,
+                total: msg.total,
+                pct: msg.pct,
+                fps: msg.fps,
+                elapsed: msg.elapsed,
+                eta: msg.eta,
+              });
             } else if (msg.type === 'result') {
               const map = new Map<number, Keypoint[]>();
               (msg.frames as number[][]).forEach((flat, i) => {
@@ -100,7 +111,7 @@ export function usePoseLandmarker(): UsePoseLandmarkerReturn {
               setFrameWidth(msg.frame_width);
               setFrameHeight(msg.frame_height);
               setTotalFrames(msg.total_frames);
-              setPoseFps(msg.fps); // ground truth — same fps OpenCV used to index frames
+              setPoseFps(msg.fps);
               setProgress(null);
               setStatus('ready');
             }

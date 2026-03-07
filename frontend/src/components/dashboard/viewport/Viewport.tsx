@@ -44,11 +44,9 @@ export const Viewport = () => {
   const sectionHeights = { header: '1.25rem', controlSection: '12rem' };
 
   const [videoMeta, setVideoMeta] = useState<VideoMeta | null>(null);
-  const [currentTime, setCurrentTime] = useState(0);
+  const [currentFrame, setCurrentFrame] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
-  const [volume, setVolume] = useState(1);
-  const [isMuted, setIsMuted] = useState(false);
   const [startFrame, setStartFrame] = useState<number | null>(null);
   const [calibration, setCalibration] = useState<CalibrationData | null>(null);
   const [calibrating, setCalibrating] = useState(false);
@@ -63,9 +61,8 @@ export const Viewport = () => {
     x: 0,
     y: 0,
   });
-  const [videoLoading, setVideoLoading] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);
-  const [videoProbing, setVideoProbing] = useState(false); // true while ffprobe reads fps
+  const [videoProbing, setVideoProbing] = useState(false);
   const exportingRef = useRef(false);
 
   // ── Pose ──────────────────────────────────────────────────────────────────
@@ -99,23 +96,18 @@ export const Viewport = () => {
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const seekVideo = useRef<(time: number) => void>(() => {});
-  const getVideoTime = useRef<() => number>(() => 0);
   const mainRef = useRef<HTMLDivElement>(null);
   const isPanning = useRef(false);
   const panStart = useRef({ x: 0, y: 0 });
   const panOrigin = useRef({ x: 0, y: 0 });
 
-  const effectiveFps = poseFps > 0 ? poseFps : (videoMeta?.fps ?? 30);
-  const effectiveTotal =
+  // ── Single source of truth: frame counter ─────────────────────────────────
+  // fps and totalFrames always come from pose backend once available —
+  // exact match to the values OpenCV used. Never round the fps.
+  const fps = poseFps > 0 ? poseFps : (videoMeta?.fps ?? 30);
+  const totalFrames =
     poseTotalFrames > 0 ? poseTotalFrames : (videoMeta?.totalFrames ?? 0);
-  const fps = effectiveFps;
-  const totalFrames = effectiveTotal;
-  const currentFrame = Math.min(Math.round(currentTime * fps), totalFrames - 1);
-  const poseFrame =
-    poseTotalFrames > 0
-      ? Math.min(Math.round(currentTime * fps), poseTotalFrames - 1)
-      : currentFrame;
+  const currentTime = totalFrames > 0 ? currentFrame / fps : 0;
 
   const {
     exportStatus,
@@ -141,10 +133,9 @@ export const Viewport = () => {
     return () => resetPose();
   }, [poseEnabled, videoMeta?.src, analyseVideo, resetPose]);
 
-  // ── Status bar reporting ──────────────────────────────────────────────────
+  // ── Status bar ────────────────────────────────────────────────────────────
   const { set: setStatus, clear: clearStatus } = useStatus();
 
-  // Video file info
   useEffect(() => {
     if (!videoMeta) {
       clearStatus('video');
@@ -153,21 +144,16 @@ export const Viewport = () => {
       return;
     }
     setStatus('video', 'file', videoMeta.title, { accent: 'sky' });
-    setStatus(
-      'fps',
-      'fps',
-      `${videoMeta.fps % 1 === 0 ? videoMeta.fps : videoMeta.fps.toFixed(3)}`,
-    );
-  }, [videoMeta, setStatus, clearStatus]);
+    setStatus('fps', 'fps', `${fps % 1 === 0 ? fps : fps.toFixed(3)}`);
+  }, [videoMeta, fps, setStatus, clearStatus]);
 
-  // Playback position
   useEffect(() => {
     if (!videoMeta) return;
-    const tc = `${String(Math.floor(currentTime / 60)).padStart(2, '0')}:${(currentTime % 60).toFixed(2).padStart(5, '0')}`;
+    const secs = currentTime;
+    const tc = `${String(Math.floor(secs / 60)).padStart(2, '0')}:${(secs % 60).toFixed(2).padStart(5, '0')}`;
     setStatus('frame', 'frame', `${currentFrame} / ${totalFrames - 1}  ${tc}`);
   }, [currentFrame, currentTime, totalFrames, videoMeta, setStatus]);
 
-  // Playback state
   useEffect(() => {
     if (!videoMeta) {
       clearStatus('playback');
@@ -183,14 +169,12 @@ export const Viewport = () => {
     else setStatus('playback', 'state', 'paused', { accent: 'default' });
   }, [isPlaying, videoEnded, videoMeta, setStatus, clearStatus]);
 
-  // Probing
   useEffect(() => {
     if (videoProbing)
       setStatus('probe', 'analysing', 'fps…', { accent: 'amber', pulse: true });
     else clearStatus('probe');
   }, [videoProbing, setStatus, clearStatus]);
 
-  // Export
   useEffect(() => {
     if (exportStatus === 'idle') clearStatus('export');
     else if (exportStatus === 'loading')
@@ -216,7 +200,6 @@ export const Viewport = () => {
     }
   }, [exportStatus, exportProgress, setStatus, clearStatus]);
 
-  // Pose
   useEffect(() => {
     if (!poseEnabled) {
       clearStatus('pose');
@@ -229,10 +212,15 @@ export const Viewport = () => {
         accent: 'red',
       });
     } else if (poseProgress) {
+      const { frame, total, pct, fps: ifps, eta } = poseProgress;
+      const etaStr =
+        eta < 60
+          ? `${Math.round(eta)}s`
+          : `${Math.floor(eta / 60)}m ${Math.round(eta % 60)}s`;
       setStatus(
         'pose',
         'pose',
-        `analysing  ${poseProgress.frame} / ${poseProgress.total}  (${poseProgress.pct}%)`,
+        `analysing  ${frame} / ${total}  (${pct}%)  ·  ${ifps} fps  ·  eta ${etaStr}`,
         { accent: 'amber', pulse: true },
       );
     } else {
@@ -240,7 +228,6 @@ export const Viewport = () => {
     }
   }, [poseEnabled, poseStatus, poseProgress, setStatus, clearStatus]);
 
-  // Zoom
   useEffect(() => {
     if (transform.scale > 1)
       setStatus('zoom', 'zoom', `${transform.scale.toFixed(1)}×`, {
@@ -249,6 +236,7 @@ export const Viewport = () => {
     else clearStatus('zoom');
   }, [transform.scale, setStatus, clearStatus]);
 
+  // ── Pan & zoom ────────────────────────────────────────────────────────────
   const clampPan = useCallback(
     (x: number, y: number, scale: number, el: HTMLElement) => {
       const maxX = (el.clientWidth * (scale - 1)) / 2;
@@ -261,7 +249,6 @@ export const Viewport = () => {
     [],
   );
 
-  // Wheel zoom — no dep array so listener is always re-attached fresh
   useEffect(() => {
     const el = mainRef.current;
     if (!el) return;
@@ -274,10 +261,8 @@ export const Viewport = () => {
           Math.min(MAX_SCALE, prev.scale * (1 + -e.deltaY * ZOOM_SPEED)),
         );
         const rect = el.getBoundingClientRect();
-        const cx = rect.width / 2;
-        const cy = rect.height / 2;
-        const mx = e.clientX - rect.left - cx;
-        const my = e.clientY - rect.top - cy;
+        const mx = e.clientX - rect.left - rect.width / 2;
+        const my = e.clientY - rect.top - rect.height / 2;
         const sf = newScale / prev.scale;
         const { x, y } = clampPan(
           mx + (prev.x - mx) * sf,
@@ -334,12 +319,12 @@ export const Viewport = () => {
   const onPointerUp = useCallback(() => {
     isPanning.current = false;
   }, []);
-
   const resetTransform = useCallback(
     () => setTransform({ scale: 1, x: 0, y: 0 }),
     [],
   );
 
+  // ── File load ─────────────────────────────────────────────────────────────
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -352,8 +337,6 @@ export const Viewport = () => {
       tmp.preload = 'auto';
 
       tmp.onloadedmetadata = async () => {
-        // Read fps from the file via ffprobe (avg_frame_rate fraction).
-        // This is the only reliable source — rVFC-based counting is inaccurate.
         setVideoProbing(true);
         const fps = await probeVideoFps(src);
         setVideoProbing(false);
@@ -367,11 +350,9 @@ export const Viewport = () => {
           totalFrames: Math.floor(tmp.duration * fps),
           duration: tmp.duration,
         });
-        setCurrentTime(0);
+        setCurrentFrame(0);
         setIsPlaying(false);
         setPlaybackRate(1);
-        setVolume(1);
-        setIsMuted(false);
         setStartFrame(null);
         setCalibration(null);
         setCalibrating(false);
@@ -396,28 +377,12 @@ export const Viewport = () => {
 
   const handleSeekToFrame = useCallback(
     (frame: number) => {
-      const time = frame / fps;
-      seekVideo.current(time);
-      setCurrentTime(time);
+      setCurrentFrame(Math.max(0, Math.min(frame, totalFrames - 1)));
       setVideoEnded(false);
     },
-    [fps],
+    [totalFrames],
   );
 
-  const handleVideoReady = useCallback(
-    (
-      seek: (time: number) => void,
-      getTime: () => number,
-      videoEl: HTMLVideoElement,
-    ) => {
-      seekVideo.current = seek;
-      getVideoTime.current = getTime;
-      videoElRef.current = videoEl;
-    },
-    [],
-  );
-
-  // Stable ref callback that adds the wheel-stop listener exactly once per element
   const stopWheel = useCallback((el: HTMLDivElement | null) => {
     if (!el) return;
     el.addEventListener('wheel', (e) => e.stopPropagation(), {
@@ -440,6 +405,7 @@ export const Viewport = () => {
       return next;
     });
   }, []);
+
   const zoomLabel =
     transform.scale > 1 ? `${transform.scale.toFixed(1)}×` : null;
 
@@ -472,7 +438,7 @@ export const Viewport = () => {
           <div className="flex items-center gap-1.5">
             <Clock className="h-3 w-3 text-zinc-500 dark:text-zinc-400" />
             <span className="text-[11px] uppercase tracking-widest text-zinc-700 dark:text-zinc-300 font-sans">
-              {videoMeta ? `${videoMeta.fps} fps` : '—'}
+              {videoMeta ? `${fps % 1 === 0 ? fps : fps.toFixed(3)} fps` : '—'}
             </span>
           </div>
           {zoomLabel && (
@@ -534,24 +500,23 @@ export const Viewport = () => {
             >
               <VideoLayer
                 src={videoMeta.src}
+                fps={fps}
+                totalFrames={totalFrames}
+                currentFrame={currentFrame}
                 playbackRate={playbackRate}
                 isPlaying={isPlaying}
-                volume={volume}
-                isMuted={isMuted}
-                onTimeUpdate={(time) => setCurrentTime(time)}
-                onVideoReady={handleVideoReady}
-                onLoadingChange={(loading) => {
-                  if (!exportingRef.current) setVideoLoading(loading);
-                }}
+                onFrameChange={setCurrentFrame}
                 onEnded={() => {
                   setIsPlaying(false);
                   setVideoEnded(true);
                 }}
+                onReady={(el) => {
+                  videoElRef.current = el;
+                }}
               />
-              {/* Pose overlay lives inside transform wrapper — stays registered to video */}
               {poseEnabled && poseStatus === 'ready' && (
                 <PoseOverlay
-                  keypoints={getKeypoints(poseFrame)}
+                  keypoints={getKeypoints(currentFrame)}
                   frameWidth={poseFrameW}
                   frameHeight={poseFrameH}
                   videoNatWidth={videoMeta.width}
@@ -562,19 +527,17 @@ export const Viewport = () => {
               )}
             </div>
 
-            {/* Loading spinner — probing fps or buffering, hidden during export */}
-            {(videoProbing || videoLoading) && exportStatus === 'idle' && (
+            {videoProbing && exportStatus === 'idle' && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="flex flex-col items-center gap-2">
                   <div className="w-6 h-6 border-2 border-zinc-600 border-t-sky-400 rounded-full animate-spin" />
                   <span className="text-[8px] uppercase tracking-widest text-zinc-500">
-                    {videoProbing ? 'Analysing…' : 'Loading'}
+                    Analysing…
                   </span>
                 </div>
               </div>
             )}
 
-            {/* Crop overlay */}
             <CropOverlay
               active={drawingCrop || showCropOverlay}
               cropRect={cropRect}
@@ -615,7 +578,6 @@ export const Viewport = () => {
               />
             )}
 
-            {/* Measurement overlay — always mounted when calibrated so saved lines persist */}
             {calibration && (
               <MeasurementOverlay
                 key={measuringKey}
@@ -631,7 +593,6 @@ export const Viewport = () => {
               />
             )}
 
-            {/* Measurement HUD */}
             {(measuringDistance || measuringAngle) && (
               <div className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none">
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/80 border border-zinc-600 rounded-sm backdrop-blur-sm pointer-events-auto">
@@ -658,7 +619,6 @@ export const Viewport = () => {
               </div>
             )}
 
-            {/* Trim & Crop panel */}
             {showTrimCropPanel && videoMeta && (
               <div
                 className="absolute top-0 bottom-0 w-56 border-l border-zinc-400 dark:border-zinc-600 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm"
@@ -723,24 +683,18 @@ export const Viewport = () => {
                   }}
                   onExport={(mode) =>
                     startExport(mode, (url, w, h) => {
-                      // Clear crop immediately — don't wait for metadata
                       setCropRect(null);
                       setShowCropOverlay(false);
                       setDrawingCrop(false);
-
                       if (videoMeta?.src) URL.revokeObjectURL(videoMeta.src);
-
                       const tmp = document.createElement('video');
                       tmp.src = url;
                       tmp.muted = true;
                       tmp.preload = 'auto';
-
                       tmp.onloadedmetadata = () => {
                         if (isFinite(tmp.duration) && tmp.duration > 0) {
                           applyReplace(url, w, h, tmp.duration);
                         } else {
-                          // WebM from captureStream often has Infinity duration.
-                          // Seek to a large number forces the browser to scan and resolve it.
                           tmp.currentTime = 1e10;
                           tmp.onseeked = () => {
                             tmp.onseeked = null;
@@ -748,7 +702,6 @@ export const Viewport = () => {
                           };
                         }
                       };
-
                       const applyReplace = (
                         src: string,
                         w: number,
@@ -767,7 +720,7 @@ export const Viewport = () => {
                           totalFrames: Math.floor(safeDur * fps),
                           duration: safeDur,
                         });
-                        setCurrentTime(0);
+                        setCurrentFrame(0);
                         setIsPlaying(false);
                         setPlaybackRate(1);
                         setStartFrame(null);
@@ -791,7 +744,6 @@ export const Viewport = () => {
               </div>
             )}
 
-            {/* Pose panel */}
             {showPosePanel && (
               <div
                 className="absolute top-0 right-0 bottom-0 w-56 border-l border-zinc-400 dark:border-zinc-600 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm"
@@ -809,7 +761,6 @@ export const Viewport = () => {
               </div>
             )}
 
-            {/* Measurement panel */}
             {showMeasurementPanel && (
               <div
                 className="absolute top-0 right-0 bottom-0 w-56 border-l border-zinc-400 dark:border-zinc-600 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm"
@@ -836,8 +787,9 @@ export const Viewport = () => {
                   }}
                   onToggleSectionVisible={(type) =>
                     setMeasurements((prev) => {
-                      const section = prev.filter((m) => m.type === type);
-                      const allVisible = section.every((m) => m.visible);
+                      const allVisible = prev
+                        .filter((m) => m.type === type)
+                        .every((m) => m.visible);
                       return prev.map((m) =>
                         m.type === type ? { ...m, visible: !allVisible } : m,
                       );
@@ -902,10 +854,6 @@ export const Viewport = () => {
           videoEnded={videoEnded}
           playbackRate={playbackRate}
           setPlaybackRate={setPlaybackRate}
-          volume={volume}
-          setVolume={setVolume}
-          isMuted={isMuted}
-          setIsMuted={setIsMuted}
           onSeekToFrame={handleSeekToFrame}
           startFrame={startFrame}
           onSetStartFrame={() => setStartFrame(currentFrame)}
