@@ -3,6 +3,8 @@
 TODO
 
 - Going to work on telemetry
+- Add another view mode that builds a 'body' onto the skeleton to look like Ralph Mann's figures.
+- 3D mode is a must. Alternatives to Three.js? Just to make sure there isn't a better tool before I go forward with it.
 - Add the feature to place markers (with optional labels) and then retroactively measure the distance between them
 - So many face options in poseconfig panel. Hide most?
 - When using the export option, let the draw box disappear after I close the panel.
