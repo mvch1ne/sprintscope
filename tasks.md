@@ -12,7 +12,7 @@ TODO
 ## Backend
 
 -
-- Try MoveNet Thunder. If doesn't work go for RTMPose built on MMPose
+- Get the requirements necessary for the application. So that from the server, I can just install the requirements. Luckily its just RTMPose and FastAPI with their respective dependencies.
 - Deploy to Fly.io because free tier is more generous and doesn't hibernate? Regardless can write code to warm up the server
 -
 
