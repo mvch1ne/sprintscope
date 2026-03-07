@@ -2,6 +2,8 @@
 
 TODO
 
+When return @ 4pm: Drastic but how about we do away with media (the video tag) so that it doesn't constrain us and now we just play through the frames? There will be no audio but I don't mind. We can implement all the other video like functions: play, pause, jump to start, jump to end, step back, step forward, play speed, etc. So that when we get the pause data, we can reconstruct the 'media' precisely based on that. And yet of course somehow if the user has done anything in the interface (calibration, distance and angle measurements, etc) we still have access to that. Thoughts?
+
 - Add the feature to place markers (with optional labels) and then retroactively measure the distance between them
 - The button to turn off all pose landmarks doesn't work
 - Pose landmark is kinda slow from the server. Find a way to use GPU?

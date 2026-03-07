@@ -12,12 +12,11 @@ function rvfcSupported(el: HTMLVideoElement): boolean {
 
 interface VideoLayerProps {
   src: string;
-  fps: number;
   playbackRate: number;
   isPlaying: boolean;
   volume: number;
   isMuted: boolean;
-  onTimeUpdate: (currentTime: number, presentedFrames?: number) => void;
+  onTimeUpdate: (currentTime: number) => void;
   onVideoReady: (
     seek: (time: number) => void,
     getCurrentTime: () => number,
@@ -29,7 +28,6 @@ interface VideoLayerProps {
 
 export const VideoLayer = ({
   src,
-  fps,
   playbackRate,
   isPlaying,
   volume,
@@ -42,8 +40,6 @@ export const VideoLayer = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const rvfcRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
-  const rvfcOffsetRef = useRef<number | null>(null);
-  const seekFrameRef = useRef<number>(0);
 
   const cancelLoop = () => {
     const video = videoRef.current;
@@ -63,7 +59,6 @@ export const VideoLayer = ({
     onVideoReady(
       (time: number) => {
         video.currentTime = time;
-        rvfcOffsetRef.current = null;
       },
       () => video.currentTime,
       video,
@@ -83,14 +78,7 @@ export const VideoLayer = ({
           _now: DOMHighResTimeStamp,
           meta: VideoFrameCallbackMetadata,
         ) => {
-          if (rvfcOffsetRef.current === null) {
-            seekFrameRef.current = Math.round(meta.mediaTime * fps);
-            rvfcOffsetRef.current = meta.presentedFrames;
-          }
-          const videoFrame =
-            seekFrameRef.current +
-            (meta.presentedFrames - rvfcOffsetRef.current);
-          onTimeUpdate(meta.mediaTime, videoFrame);
+          onTimeUpdate(meta.mediaTime);
           rvfcRef.current = video.requestVideoFrameCallback(onFrame);
         };
         rvfcRef.current = video.requestVideoFrameCallback(onFrame);
@@ -103,25 +91,13 @@ export const VideoLayer = ({
       }
     } else {
       video.pause();
-      if (rvfcSupported(video)) {
-        rvfcRef.current = video.requestVideoFrameCallback((_now, meta) => {
-          rvfcRef.current = null;
-          if (rvfcOffsetRef.current === null) {
-            rvfcOffsetRef.current = meta.presentedFrames;
-            seekFrameRef.current = Math.round(meta.mediaTime * fps);
-          }
-          const videoFrame =
-            seekFrameRef.current +
-            (meta.presentedFrames - rvfcOffsetRef.current);
-          onTimeUpdate(meta.mediaTime, videoFrame);
-        });
-      } else {
-        onTimeUpdate(video.currentTime);
-      }
+      // Do NOT register rvfc here — it fires asynchronously and overwrites
+      // the currentTime we just set via seekVideo, causing a visible bounce.
+      // currentTime is set synchronously in handleSeekToFrame so no update needed.
     }
 
     return cancelLoop;
-  }, [isPlaying, onTimeUpdate, fps]);
+  }, [isPlaying, onTimeUpdate]);
 
   useEffect(() => {
     const video = videoRef.current;

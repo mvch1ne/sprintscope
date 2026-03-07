@@ -14,11 +14,11 @@ import { usePoseLandmarker } from './PoseEngine/usePoseLandmarker';
 import { LANDMARKS, buildDefaultVisibility } from './PoseEngine/poseConfig';
 import type { LandmarkDef } from './PoseEngine/poseConfig';
 import { TrimCropPanel } from './TrimAndCrop/TrimCropPanel';
+import type { CropRect, TrimPoints } from './TrimAndCrop/TrimCropPanel';
 import { CropOverlay } from './TrimAndCrop/CropOverlay';
 import { useExport } from './videoUtilities/useExport';
 import { probeVideoFps } from './videoUtilities/probeVideoFps';
 import { useStatus } from './StatusBar/StatusContext';
-import type { CropRect, TrimPoints } from './TrimAndCrop/TrimCropPanel';
 
 interface VideoMeta {
   src: string;
@@ -45,7 +45,6 @@ export const Viewport = () => {
 
   const [videoMeta, setVideoMeta] = useState<VideoMeta | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
-  const [presentedFrames, setPresentedFrames] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [volume, setVolume] = useState(1);
@@ -83,6 +82,7 @@ export const Viewport = () => {
     frameWidth: poseFrameW,
     frameHeight: poseFrameH,
     totalFrames: poseTotalFrames,
+    poseFps,
     getKeypoints,
     analyseVideo,
     reset: resetPose,
@@ -106,18 +106,15 @@ export const Viewport = () => {
   const panStart = useRef({ x: 0, y: 0 });
   const panOrigin = useRef({ x: 0, y: 0 });
 
-  const fps = videoMeta?.fps ?? 30;
-  const totalFrames = videoMeta?.totalFrames ?? 0;
+  const effectiveFps = poseFps > 0 ? poseFps : (videoMeta?.fps ?? 30);
+  const effectiveTotal =
+    poseTotalFrames > 0 ? poseTotalFrames : (videoMeta?.totalFrames ?? 0);
+  const fps = effectiveFps;
+  const totalFrames = effectiveTotal;
   const currentFrame = Math.min(Math.round(currentTime * fps), totalFrames - 1);
-  // Use browser's exact decoded frame index (from requestVideoFrameCallback) for
-  // pose lookup — eliminates the time*fps drift that causes skeleton/video mismatch.
-  // Falls back to time-based calc if rvfc isn't supported.
   const poseFrame =
     poseTotalFrames > 0
-      ? Math.min(
-          presentedFrames ?? Math.round(currentTime * fps),
-          poseTotalFrames - 1,
-        )
+      ? Math.min(Math.round(currentTime * fps), poseTotalFrames - 1)
       : currentFrame;
 
   const {
@@ -167,7 +164,7 @@ export const Viewport = () => {
   useEffect(() => {
     if (!videoMeta) return;
     const tc = `${String(Math.floor(currentTime / 60)).padStart(2, '0')}:${(currentTime % 60).toFixed(2).padStart(5, '0')}`;
-    setStatus('frame', 'frame', `${currentFrame} / ${totalFrames}  ${tc}`);
+    setStatus('frame', 'frame', `${currentFrame} / ${totalFrames - 1}  ${tc}`);
   }, [currentFrame, currentTime, totalFrames, videoMeta, setStatus]);
 
   // Playback state
@@ -402,7 +399,6 @@ export const Viewport = () => {
       const time = frame / fps;
       seekVideo.current(time);
       setCurrentTime(time);
-      setPresentedFrames(frame); // snap pose frame immediately on seek
       setVideoEnded(false);
     },
     [fps],
@@ -538,15 +534,11 @@ export const Viewport = () => {
             >
               <VideoLayer
                 src={videoMeta.src}
-                fps={fps}
                 playbackRate={playbackRate}
                 isPlaying={isPlaying}
                 volume={volume}
                 isMuted={isMuted}
-                onTimeUpdate={(time, frames) => {
-                  setCurrentTime(time);
-                  if (frames !== undefined) setPresentedFrames(frames);
-                }}
+                onTimeUpdate={(time) => setCurrentTime(time)}
                 onVideoReady={handleVideoReady}
                 onLoadingChange={(loading) => {
                   if (!exportingRef.current) setVideoLoading(loading);

@@ -19,7 +19,8 @@ interface UsePoseLandmarkerReturn {
   progress: { frame: number; total: number; pct: number } | null;
   frameWidth: number;
   frameHeight: number;
-  totalFrames: number; // ← ground truth frame count from backend
+  totalFrames: number; // ground truth frame count from backend
+  poseFps: number; // ground truth fps from backend (CAP_PROP_FPS)
   getKeypoints: (frame: number) => Keypoint[];
   analyseVideo: (videoSrc: string) => Promise<void>;
   reset: () => void;
@@ -35,6 +36,7 @@ export function usePoseLandmarker(): UsePoseLandmarkerReturn {
   const [frameWidth, setFrameWidth] = useState(0);
   const [frameHeight, setFrameHeight] = useState(0);
   const [totalFrames, setTotalFrames] = useState(0);
+  const [poseFps, setPoseFps] = useState(0);
   const frameMapRef = useRef<Map<number, Keypoint[]>>(new Map());
 
   const getKeypoints = useCallback((frame: number): Keypoint[] => {
@@ -50,6 +52,7 @@ export function usePoseLandmarker(): UsePoseLandmarkerReturn {
     setFrameWidth(0);
     setFrameHeight(0);
     setTotalFrames(0);
+    setPoseFps(0);
   }, []);
 
   const analyseVideo = useCallback(
@@ -96,7 +99,8 @@ export function usePoseLandmarker(): UsePoseLandmarkerReturn {
               frameMapRef.current = map;
               setFrameWidth(msg.frame_width);
               setFrameHeight(msg.frame_height);
-              setTotalFrames(msg.total_frames); // use backend's count, not duration*fps
+              setTotalFrames(msg.total_frames);
+              setPoseFps(msg.fps); // ground truth — same fps OpenCV used to index frames
               setProgress(null);
               setStatus('ready');
             }
@@ -117,6 +121,7 @@ export function usePoseLandmarker(): UsePoseLandmarkerReturn {
     frameWidth,
     frameHeight,
     totalFrames,
+    poseFps,
     getKeypoints,
     analyseVideo,
     reset,
