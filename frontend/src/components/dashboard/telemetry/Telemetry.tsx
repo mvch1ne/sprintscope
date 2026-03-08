@@ -415,24 +415,43 @@ function CoMTab({
   const pct = n > 1 ? (f / (n - 1)) * 100 : 0;
   const color = '#a78bfa';
 
+  // Manual overrides for crossing frames (null = use auto-detected value).
+  const [staticCrossingOverride, setStaticCrossingOverride] = useState<number | null>(null);
+  const [flyEntryOverride, setFlyEntryOverride] = useState<number | null>(null);
+  const [flyExitOverride, setFlyExitOverride] = useState<number | null>(null);
+
+  // Detect direction of motion from raw com.x (pose-frame pixels).
+  // movingPositive = true → athlete runs left-to-right (x increases).
+  const movingPositive = com.length > 1 && com[com.length - 1].x > com[0].x;
+
   /**
-   * Find the fractional frame at which com.x crosses markerX.
-   * Uses linear interpolation between the two surrounding frames so low-fps
-   * videos (where no frame lands exactly on the marker) still work correctly.
-   * Returns null if the CoM never reaches markerX.
+   * Find the fractional frame at which com.x (raw pose pixels — the same
+   * coordinates used to draw the marker on screen) crosses markerX.
+   * Handles both rightward (increasing x) and leftward (decreasing x) motion.
+   * Uses linear interpolation for sub-frame precision.
    */
   const findCrossing = (markerX: number, startFrom = 0): number | null => {
     for (let fi = Math.max(1, startFrom); fi < com.length; fi++) {
       const prev = com[fi - 1].x;
       const curr = com[fi].x;
-      if (prev < markerX && curr >= markerX) {
-        // Linearly interpolate: fraction = (markerX - prev) / (curr - prev)
-        const frac = (markerX - prev) / (curr - prev);
-        return (fi - 1) + frac; // fractional frame index
+      const crosses = movingPositive
+        ? (prev < markerX && curr >= markerX)
+        : (prev > markerX && curr <= markerX);
+      if (crosses) {
+        const frac = Math.abs((markerX - prev) / (curr - prev));
+        return (fi - 1) + frac;
       }
       if (curr === markerX) return fi;
     }
     return null;
+  };
+
+  /** Interpolate comSeries.x at a fractional frame index. */
+  const interpComX = (frac: number): number => {
+    const lo = Math.floor(frac);
+    const hi = Math.min(lo + 1, n - 1);
+    const t  = frac - lo;
+    return (comSeries.x[lo] ?? 0) * (1 - t) + (comSeries.x[hi] ?? 0) * t;
   };
 
   // Shared sparklines + events table.
@@ -529,25 +548,31 @@ function CoMTab({
     const startIdx = Math.min(confirmedSprintStart, n - 1);
     const RT = reactionTimeEnabled ? reactionTime : 0;
 
-    // Find fractional frame where CoM crosses the start line post (x-coord in pose pixels).
-    // comSeries.x is in metres; com[fi].x is in pose-frame pixels (same space as sprintStart.site.x).
-    const crossingFrac = findCrossing(sprintStart.site.x);
-    const crossingFrame = crossingFrac !== null ? Math.round(crossingFrac) : null;
+    // Auto-detect the fractional frame where CoM (raw pixels) crosses the start marker.
+    const autoCrossingFrac = findCrossing(sprintStart.site.x);
+    const autoCrossingFrame = autoCrossingFrac !== null ? Math.round(autoCrossingFrac) : null;
 
-    // comSeries.x value at the crossing point (interpolated)
-    const xAtCrossing = crossingFrac !== null
-      ? (() => {
-          const lo = Math.floor(crossingFrac);
-          const hi = Math.min(lo + 1, n - 1);
-          const t = crossingFrac - lo;
-          return (comSeries.x[lo] ?? 0) * (1 - t) + (comSeries.x[hi] ?? 0) * t;
-        })()
+    // Apply manual override if set; clamp to valid range.
+    const effectiveCrossingFrac = staticCrossingOverride !== null
+      ? Math.max(0, Math.min(n - 1, staticCrossingOverride))
+      : autoCrossingFrac;
+    const effectiveCrossingFrame = staticCrossingOverride !== null
+      ? Math.max(0, Math.min(n - 1, staticCrossingOverride))
+      : autoCrossingFrame;
+
+    // xAtCrossing in comSeries.x metre space — interpolated at the effective crossing frame.
+    // Fallback: anchor at first-movement frame if CoM never reaches the start line.
+    const xAtCrossing = effectiveCrossingFrac !== null
+      ? interpComX(effectiveCrossingFrac)
       : (comSeries.x[startIdx] ?? 0);
+
+    // sign: +1 for rightward, -1 for leftward — so relDisp is always ≥ 0 past start.
+    const dir = movingPositive ? 1 : -1;
 
     const gateSpeed = (() => {
       const result = new Array(n).fill(0) as number[];
       for (let fi = startIdx + 1; fi < n; fi++) {
-        const d = (comSeries.x[fi] ?? 0) - xAtCrossing;
+        const d = ((comSeries.x[fi] ?? 0) - xAtCrossing) * dir;
         if (d < 0) continue; // no metric before start line
         const elapsed = (fi - startIdx) / fps + RT;
         result[fi] = elapsed > 0 ? d / elapsed : 0;
@@ -562,7 +587,7 @@ function CoMTab({
       return result;
     })();
 
-    const relDisp = (fi: number) => Math.max(0, (comSeries.x[Math.min(fi, n - 1)] ?? 0) - xAtCrossing);
+    const relDisp = (fi: number) => Math.max(0, ((comSeries.x[Math.min(fi, n - 1)] ?? 0) - xAtCrossing) * dir);
 
     return (
       <div>
@@ -588,11 +613,31 @@ function CoMTab({
               <span className="text-[9px] text-zinc-500 font-mono">ms</span>
             </>
           )}
-          {crossingFrame !== null && (
-            <span className="ml-auto text-[9px] font-mono text-cyan-500/70">
-              Start line crossed @ fr {crossingFrame}
-            </span>
-          )}
+          <div className="ml-auto flex items-center gap-1.5">
+            <span className="text-[9px] font-mono text-zinc-500">Crossed fr</span>
+            <input
+              type="number"
+              min={0}
+              max={n - 1}
+              value={effectiveCrossingFrame ?? ''}
+              placeholder={autoCrossingFrame !== null ? String(autoCrossingFrame) : '—'}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10);
+                setStaticCrossingOverride(!isNaN(v) && v >= 0 ? v : null);
+              }}
+              className={`w-14 text-[9px] font-mono rounded-sm px-1 py-0.5 tabular-nums text-center outline-none
+                ${staticCrossingOverride !== null
+                  ? 'bg-violet-950/60 border border-violet-500/60 text-violet-300'
+                  : 'bg-zinc-900 border border-zinc-700 text-cyan-400'}`}
+            />
+            {staticCrossingOverride !== null && (
+              <button
+                onClick={() => setStaticCrossingOverride(null)}
+                title="Reset to auto-detected"
+                className="text-[10px] text-zinc-500 hover:text-cyan-400 transition-colors cursor-pointer leading-none"
+              >↺</button>
+            )}
+          </div>
         </div>
         {renderSpeedAccel(gateSpeed, gateAccel, relDisp,
           `Disp / (elapsed${reactionTimeEnabled ? ` + ${Math.round(reactionTime * 1000)}ms RT` : ''})`)}
@@ -621,9 +666,19 @@ function CoMTab({
       );
     }
 
-    // Detect when CoM crosses each marker's x-coordinate (pose-frame pixels).
-    const entryFrac = findCrossing(sprintStart.site.x);
-    const exitFrac = entryFrac !== null ? findCrossing(sprintFinish.site.x, Math.floor(entryFrac)) : null;
+    // Auto-detect fractional frames where CoM (raw pixels) crosses entry/exit markers.
+    const autoEntryFrac = findCrossing(sprintStart.site.x);
+    const autoExitFrac  = autoEntryFrac !== null
+      ? findCrossing(sprintFinish.site.x, Math.floor(autoEntryFrac))
+      : null;
+
+    // Apply manual overrides if set; clamp to valid range.
+    const entryFrac: number | null = flyEntryOverride !== null
+      ? Math.max(0, Math.min(n - 1, flyEntryOverride))
+      : autoEntryFrac;
+    const exitFrac: number | null = flyExitOverride !== null
+      ? Math.max(0, Math.min(n - 1, flyExitOverride))
+      : autoExitFrac;
 
     if (entryFrac === null || exitFrac === null || exitFrac <= entryFrac) {
       return (
@@ -632,7 +687,37 @@ function CoMTab({
           <span className="text-[9px] uppercase tracking-widest text-zinc-500">
             {entryFrac === null ? 'CoM never reaches entry marker' : 'CoM never reaches exit marker (or exit before entry)'}
           </span>
-          <span className="text-[9px] text-zinc-600 font-mono">Check that Start comes before Finish and markers are within the athlete's path</span>
+          <span className="text-[9px] text-zinc-600 font-mono">Check that Start comes before Finish and markers are within the athlete's path — or enter frames manually below</span>
+          {/* Manual override inputs even when auto fails */}
+          <div className="mt-2 flex flex-col gap-2 w-full max-w-50">
+            {(['entry', 'exit'] as const).map((side) => {
+              const isEntry = side === 'entry';
+              const override = isEntry ? flyEntryOverride : flyExitOverride;
+              const setOverride = isEntry ? setFlyEntryOverride : setFlyExitOverride;
+              const autoVal = isEntry ? autoEntryFrac : autoExitFrac;
+              return (
+                <div key={side} className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-mono text-zinc-500 w-12 text-right capitalize">{side} fr</span>
+                  <input
+                    type="number" min={0} max={n - 1}
+                    value={override ?? ''}
+                    placeholder={autoVal !== null ? autoVal.toFixed(1) : '—'}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      setOverride(!isNaN(v) && v >= 0 ? v : null);
+                    }}
+                    className={`w-16 text-[9px] font-mono rounded-sm px-1 py-0.5 tabular-nums text-center outline-none
+                      ${override !== null
+                        ? 'bg-violet-950/60 border border-violet-500/60 text-violet-300'
+                        : 'bg-zinc-900 border border-zinc-700 text-orange-400'}`}
+                  />
+                  {override !== null && (
+                    <button onClick={() => setOverride(null)} title="Reset to auto" className="text-[10px] text-zinc-500 hover:text-orange-400 transition-colors cursor-pointer">↺</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       );
     }
@@ -671,14 +756,50 @@ function CoMTab({
           ))}
         </div>
 
-        <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/60 flex flex-col gap-1">
-          <div className="flex justify-between">
-            <span className="text-[9px] font-mono text-zinc-500">CoM crosses entry (Annotate → Start)</span>
-            <span className="text-[9px] font-mono text-cyan-400">Fr {entryFrameDisplay} · {(entryFrac / fps).toFixed(3)}s</span>
+        <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/60 flex flex-col gap-1.5">
+          {/* Entry frame — editable */}
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[9px] font-mono text-zinc-500 shrink-0">Entry (Annotate → Start)</span>
+            <div className="flex items-center gap-1">
+              <input
+                type="number" min={0} max={n - 1}
+                value={flyEntryOverride ?? Math.round(entryFrac)}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  setFlyEntryOverride(!isNaN(v) && v >= 0 ? v : null);
+                }}
+                className={`w-14 text-[9px] font-mono rounded-sm px-1 py-0.5 tabular-nums text-center outline-none
+                  ${flyEntryOverride !== null
+                    ? 'bg-violet-950/60 border border-violet-500/60 text-violet-300'
+                    : 'bg-zinc-900 border border-zinc-700 text-cyan-400'}`}
+              />
+              <span className="text-[9px] font-mono text-zinc-500">· {(entryFrac / fps).toFixed(3)}s</span>
+              {flyEntryOverride !== null && (
+                <button onClick={() => setFlyEntryOverride(null)} title="Reset to auto" className="text-[10px] text-zinc-500 hover:text-cyan-400 transition-colors cursor-pointer">↺</button>
+              )}
+            </div>
           </div>
-          <div className="flex justify-between">
-            <span className="text-[9px] font-mono text-zinc-500">CoM crosses exit (Annotate → Finish)</span>
-            <span className="text-[9px] font-mono text-orange-400">Fr {exitFrameDisplay} · {(exitFrac / fps).toFixed(3)}s</span>
+          {/* Exit frame — editable */}
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[9px] font-mono text-zinc-500 shrink-0">Exit (Annotate → Finish)</span>
+            <div className="flex items-center gap-1">
+              <input
+                type="number" min={0} max={n - 1}
+                value={flyExitOverride ?? Math.round(exitFrac)}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  setFlyExitOverride(!isNaN(v) && v >= 0 ? v : null);
+                }}
+                className={`w-14 text-[9px] font-mono rounded-sm px-1 py-0.5 tabular-nums text-center outline-none
+                  ${flyExitOverride !== null
+                    ? 'bg-violet-950/60 border border-violet-500/60 text-violet-300'
+                    : 'bg-zinc-900 border border-zinc-700 text-orange-400'}`}
+              />
+              <span className="text-[9px] font-mono text-zinc-500">· {(exitFrac / fps).toFixed(3)}s</span>
+              {flyExitOverride !== null && (
+                <button onClick={() => setFlyExitOverride(null)} title="Reset to auto" className="text-[10px] text-zinc-500 hover:text-orange-400 transition-colors cursor-pointer">↺</button>
+              )}
+            </div>
           </div>
           <div className="flex justify-between">
             <span className="text-[9px] font-mono text-zinc-500">Distance from calibrated CoM</span>
