@@ -2,9 +2,8 @@
 
 TODO
 
-- When calibrating, show an indicator when the the start and end points are aligned (so if horizontal, show when they're perfectly flat and if vertical, you get it). It should be like a guideline so that the second point can be straight. It shouldn't be forced though since there will be times where I will want to mark things diagonally.
-- If ground contact times are changing, then the flight times have to be recomputed. Actually, a lot of things in the telemetry section have to be recomputed based on every change made.
-- When we mark the start position, I should aways be able to see (how much distance has been travelled by the CoM at any point in time). No need for the finish marker. Just have a place in the control panel that always tells me the distance from the start mark to where we are.
+- The first ground contact won't have a stride value. I think we can get one by allowing it to be annotated using the start position as a reference (duh!)
+- Question accuracy of CoM metrics. It's saying for example that I got to 10m in about 1.83s (probably had a bit of the start cut off) but that my velocity at that point was 7.66m/s but if you compute 10m/1.83s, you're supposed to get 5.46m/s. Any reason for the large large disparity? Also how to distinguish between timings based on CoM and on first reaction - legs, hands,etc?
 - Work towards body view looking more like Three.js human model.
 - 3D mode is a must. Alternatives to Three.js? Just to make sure there isn't a better tool before I go forward with it.
 - When using the export option, let the draw box disappear after I close the panel.
