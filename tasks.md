@@ -4,9 +4,6 @@ TODO
 
 ## Next Steps
 
-- The first ground contact won't have a stride length value. I think we can get one by allowing it to be annotated using the point at which the CoM crosses the start point as a reference (duh!).
-- Find what unit of measurement for the angular measures is more appropriate for biomechanical analysis. What values do researchers like Ken Clarke and Peter Weyand find in their papers - especially the 'whip from the hip' paper about thigh angular velocity?
-
 - Work towards body view looking more like Three.js human model.
 - 3D mode is a must. Alternatives to Three.js? Just to make sure there isn't a simpler but more appropriate tool (or we can't build one quickly) before I go forward with it.
 - The 3D mode just be, of course, VIEW ONLY! So all calibration, measurement, etc should be turned off until we switch back to one of the other views. We can pan, zoom, rotate, move around, etc but not changes.
