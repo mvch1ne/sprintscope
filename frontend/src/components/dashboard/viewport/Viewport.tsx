@@ -326,10 +326,13 @@ export const Viewport = () => {
     ctxSetMetrics(metricsWithMerged);
   }, [metricsWithMerged, ctxSetMetrics]);
 
-  // Live CoM distance from sprint start marker to current frame (metres)
+  // Live CoM displacement from sprint start marker to current frame (metres).
+  // Uses net displacement (x series) not cumulative path length, so back-and-forth
+  // noise doesn't inflate the value, and the reading goes negative when the athlete
+  // is behind the start line.
   const comDistFromStart = useMemo(() => {
     if (!sprintStart || !metricsWithMerged?.comSeries) return null;
-    const series = metricsWithMerged.comSeries.distance;
+    const series = metricsWithMerged.comSeries.x;
     if (!series.length) return null;
     const sf = Math.min(sprintStart.frame, series.length - 1);
     const cf = Math.min(currentFrame, series.length - 1);

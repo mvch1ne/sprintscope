@@ -402,16 +402,54 @@ function CoMTab({
   const pct = n > 1 ? (f / (n - 1)) * 100 : 0;
   const color = '#a78bfa';
 
-  // Sprint segment stats (start→finish markers)
+  // Reference frame: all displacements relative to sprint start marker when set.
+  const startIdx = sprintStart ? Math.min(sprintStart.frame, n - 1) : 0;
+  const xAtStart = comSeries.x[startIdx] ?? 0;
+  const relDisp = (frameIdx: number) =>
+    (comSeries.x[Math.min(frameIdx, n - 1)] ?? 0) - xAtStart;
+
+  // Sprint segment stats (start → finish markers).
   const seg = (() => {
     if (!sprintStart || !sprintFinish || sprintStart.frame >= sprintFinish.frame) return null;
     const sf = Math.min(sprintStart.frame, n - 1);
     const ff = Math.min(sprintFinish.frame, n - 1);
     const elapsedTime = (ff - sf) / fps;
-    const dist = (comSeries.distance[ff] ?? 0) - (comSeries.distance[sf] ?? 0);
+    const dist = (comSeries.x[ff] ?? 0) - (comSeries.x[sf] ?? 0);
     const avgSpeed = elapsedTime > 0 ? dist / elapsedTime : 0;
     return { elapsedTime, dist, avgSpeed };
   })();
+
+  // Per-frame velocity: displacement / elapsed time since sprint start.
+  // Identical to what a timing gate reads — cumulative average from first movement.
+  // At frame fi: v = (x[fi] - x[start]) / ((fi - startIdx) / fps)
+  // Falls back to instantaneous |vx| when no sprint start is set.
+  const gateSpeed = (() => {
+    if (!sprintStart) return comSeries.speed;
+    const result = new Array(n).fill(0) as number[];
+    for (let fi = startIdx + 1; fi < n; fi++) {
+      const d = (comSeries.x[fi] ?? 0) - xAtStart;
+      const elapsed = (fi - startIdx) / fps;
+      result[fi] = elapsed > 0 ? d / elapsed : 0;
+    }
+    return result;
+  })();
+
+  // Per-frame acceleration: central-difference of gateSpeed w.r.t. time.
+  const gateAccel = (() => {
+    if (!sprintStart) return comSeries.accel;
+    const result = new Array(n).fill(0) as number[];
+    for (let fi = 1; fi < n - 1; fi++) {
+      result[fi] = (gateSpeed[fi + 1] - gateSpeed[fi - 1]) * fps / 2;
+    }
+    if (n > 1) {
+      result[0] = (gateSpeed[1] - gateSpeed[0]) * fps;
+      result[n - 1] = (gateSpeed[n - 1] - gateSpeed[n - 2]) * fps;
+    }
+    return result;
+  })();
+
+  const speedLabel = sprintStart ? 'Avg speed (disp / elapsed)' : 'Horizontal speed |vx|';
+  const accelLabel = sprintStart ? 'Δv/Δt' : '|a|';
 
   return (
     <div>
@@ -422,7 +460,7 @@ function CoMTab({
           <div className="grid grid-cols-3 divide-x divide-zinc-100 dark:divide-zinc-800/60 border-b border-zinc-100 dark:border-zinc-800/60">
             {[
               { label: 'Time', value: seg.elapsedTime.toFixed(2), unit: 's' },
-              { label: 'Distance', value: seg.dist.toFixed(2), unit: 'm' },
+              { label: 'Net disp.', value: seg.dist.toFixed(2), unit: 'm' },
               { label: 'Avg speed', value: seg.avgSpeed.toFixed(2), unit: 'm/s' },
             ].map(({ label, value, unit }) => (
               <div key={label} className="px-2 py-2 flex flex-col gap-0.5">
@@ -440,45 +478,44 @@ function CoMTab({
       <SectionHead label="Horizontal displacement (m)" color={color} />
       <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/60">
         <div className="flex justify-between mb-1">
-          <span className="text-[9px] font-mono text-zinc-500">Displacement from start</span>
-          <span className="text-[9px] font-mono tabular-nums" style={{ color }}>
-            {comSeries.x[f]?.toFixed(2) ?? '—'} m
+          <span className="text-[9px] font-mono text-zinc-500">
+            {sprintStart ? 'Displacement from start line' : 'Displacement from frame 0'}
+          </span>
+          <span
+            className="text-[9px] font-mono tabular-nums"
+            style={{ color: relDisp(f) < 0 ? '#f97316' : color }}
+          >
+            {relDisp(f).toFixed(2)} m
           </span>
         </div>
-        <Sparkline data={spark(comSeries.x)} color={color} height={18} playheadPct={pct} />
-      </div>
-
-      <SectionHead label="Cumulative distance (m)" color={color} />
-      <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/60">
-        <div className="flex justify-between mb-1">
-          <span className="text-[9px] font-mono text-zinc-500">Total CoM path</span>
-          <span className="text-[9px] font-mono tabular-nums" style={{ color }}>
-            {comSeries.distance[f]?.toFixed(2) ?? '—'} m
-          </span>
-        </div>
-        <Sparkline data={spark(comSeries.distance)} color={color} height={18} playheadPct={pct} />
+        <Sparkline
+          data={spark(comSeries.x.map((v) => v - xAtStart))}
+          color={color}
+          height={18}
+          playheadPct={pct}
+        />
       </div>
 
       <SectionHead label="Speed (m/s)" color={color} />
       <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/60">
         <div className="flex justify-between mb-1">
-          <span className="text-[9px] font-mono text-zinc-500">Horizontal speed |vx|</span>
+          <span className="text-[9px] font-mono text-zinc-500">{speedLabel}</span>
           <span className="text-[9px] font-mono tabular-nums" style={{ color }}>
-            {comSeries.speed[f]?.toFixed(2) ?? '—'} m/s
+            {(gateSpeed[f] ?? 0).toFixed(2)} m/s
           </span>
         </div>
-        <Sparkline data={spark(comSeries.speed)} color={color} height={22} playheadPct={pct} />
+        <Sparkline data={spark(gateSpeed)} color={color} height={22} playheadPct={pct} />
       </div>
 
       <SectionHead label="Acceleration (m/s²)" color={color} />
       <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/60">
         <div className="flex justify-between mb-1">
-          <span className="text-[9px] font-mono text-zinc-500">|a|</span>
+          <span className="text-[9px] font-mono text-zinc-500">{accelLabel}</span>
           <span className="text-[9px] font-mono tabular-nums" style={{ color }}>
-            {comSeries.accel[f]?.toFixed(2) ?? '—'} m/s²
+            {(gateAccel[f] ?? 0).toFixed(2)} m/s²
           </span>
         </div>
-        <Sparkline data={spark(comSeries.accel)} color={color} height={18} playheadPct={pct} />
+        <Sparkline data={spark(gateAccel)} color={color} height={18} playheadPct={pct} />
       </div>
 
       {comEvents.length > 0 && (
@@ -488,7 +525,7 @@ function CoMTab({
             <table className="w-full text-[8px] font-mono border-collapse">
               <thead>
                 <tr className="border-b border-zinc-200 dark:border-zinc-800">
-                  {['#', 'Frame', 'Speed (m/s)', 'Accel (m/s²)', 'Dist (m)'].map((h) => (
+                  {['#', 'Frame', 'Speed (m/s)', 'Accel (m/s²)', sprintStart ? 'Disp from start (m)' : 'Position (m)'].map((h) => (
                     <th key={h} className="px-1.5 py-1 text-left text-zinc-400 uppercase tracking-wide font-normal">
                       {h}
                     </th>
@@ -503,13 +540,13 @@ function CoMTab({
                       <td className="px-1.5 py-0.5 text-zinc-400">E{i + 1}</td>
                       <td className="px-1.5 py-0.5 tabular-nums text-zinc-500">{evt.frame}</td>
                       <td className="px-1.5 py-0.5 tabular-nums" style={{ color }}>
-                        {comSeries.speed[ef]?.toFixed(2) ?? '—'}
+                        {(gateSpeed[ef] ?? 0).toFixed(2)}
                       </td>
                       <td className="px-1.5 py-0.5 tabular-nums text-zinc-500">
-                        {comSeries.accel[ef]?.toFixed(2) ?? '—'}
+                        {(gateAccel[ef] ?? 0).toFixed(2)}
                       </td>
                       <td className="px-1.5 py-0.5 tabular-nums text-zinc-500">
-                        {comSeries.distance[ef]?.toFixed(2) ?? '—'}
+                        {sprintStart ? relDisp(ef).toFixed(2) : (comSeries.x[ef] ?? 0).toFixed(2)}
                       </td>
                     </tr>
                   );
