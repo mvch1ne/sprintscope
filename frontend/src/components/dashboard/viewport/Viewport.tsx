@@ -186,8 +186,16 @@ export const Viewport = () => {
       // Always recompute contactTime from the actual frame values so edits
       // to contactFrame or liftFrame are reflected consistently everywhere.
       const contactTime = (c.liftFrame - c.contactFrame) / fps;
-      if (i === 0)
-        return { ...c, contactTime, strideLength: null, strideFrequency: null, flightTimeBefore: 0 };
+      if (i === 0) {
+        // Use the start-line marker as the reference "previous step" for the first contact,
+        // giving a stride length from the start line to the first footstrike.
+        const startLineX = sprintStart?.site.x ?? null;
+        const firstStrideLength =
+          startLineX !== null && hScale
+            ? hScale(Math.abs(c.contactSite.x - startLineX))
+            : null;
+        return { ...c, contactTime, strideLength: firstStrideLength, strideFrequency: null, flightTimeBefore: 0 };
+      }
       const prev = all[i - 1];
       const dx = Math.abs(c.contactSite.x - prev.contactSite.x);
       return {
@@ -201,7 +209,7 @@ export const Viewport = () => {
         flightTimeBefore: Math.max(0, (c.contactFrame - prev.liftFrame) / fps),
       };
     });
-  }, [metrics, manualContacts, deletedContactIds, fps, calibration, poseFrameW]);
+  }, [metrics, manualContacts, deletedContactIds, fps, calibration, poseFrameW, sprintStart]);
 
   useEffect(() => { mergedContactsRef.current = mergedContacts; }, [mergedContacts]);
 

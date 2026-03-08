@@ -4,10 +4,6 @@ TODO
 
 ## Next Steps
 
-- Let's remove the time ruler from the control panel and get rid of all its related code (without breaking anything else).
-- Let's move the set sprint start (flag) button up ther closer to the scrubber.
-- Increase the font size in the telemetry section
-
 - The first ground contact won't have a stride length value. I think we can get one by allowing it to be annotated using the point at which the CoM crosses the start point as a reference (duh!).
 - Find what unit of measurement for the angular measures is more appropriate for biomechanical analysis. What values do researchers like Ken Clarke and Peter Weyand find in their papers - especially the 'whip from the hip' paper about thigh angular velocity?
 
