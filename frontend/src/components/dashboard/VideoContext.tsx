@@ -22,6 +22,8 @@ export interface SprintMarkerCtx {
   site: { x: number; y: number };
 }
 
+type TwoPointLine = { p1: { x: number; y: number }; p2: { x: number; y: number } };
+
 interface VideoContextValue {
   currentFrame: number;
   fps: number;
@@ -34,6 +36,39 @@ interface VideoContextValue {
   showCoMEvents: boolean;
   sprintStart: SprintMarkerCtx | null;
   sprintFinish: SprintMarkerCtx | null;
+
+  // Sprint mode
+  sprintMode: 'general' | 'static' | 'flying';
+  setSprintMode: (m: 'general' | 'static' | 'flying') => void;
+
+  // Static mode: confirmed sprint start (user must explicitly confirm)
+  confirmedSprintStart: number | null;
+  setConfirmedSprintStart: (f: number | null) => void;
+
+  // Proposed sprint start (auto-detected, shown for confirmation)
+  proposedSprintStart: number | null;
+  setProposedSprintStart: (f: number | null) => void;
+
+  // Start line (normalized coords 0-1, drawn on viewport)
+  startLine: TwoPointLine | null;
+  setStartLine: (l: TwoPointLine | null) => void;
+
+  // Reaction time (static mode only)
+  reactionTime: number; // seconds, default 0.150
+  setReactionTime: (t: number) => void;
+  reactionTimeEnabled: boolean;
+  setReactionTimeEnabled: (v: boolean) => void;
+
+  // Fly zone distance (default 10m)
+  flyDistance: number;
+  setFlyDistance: (d: number) => void;
+
+  // Pose frame dimensions (needed for start line crossing detection)
+  poseFrameW: number;
+  setPoseFrameW: (w: number) => void;
+  poseFrameH: number;
+  setPoseFrameH: (h: number) => void;
+
   // Setters — called by Viewport
   setCurrentFrame: (f: number) => void;
   setFps: (f: number) => void;
@@ -63,6 +98,17 @@ export const VideoProvider = ({ children }: { children: ReactNode }) => {
   const [sprintStart, setSprintStart] = useState<SprintMarkerCtx | null>(null);
   const [sprintFinish, setSprintFinish] = useState<SprintMarkerCtx | null>(null);
 
+  // Sprint mode state
+  const [sprintMode, setSprintMode] = useState<'general' | 'static' | 'flying'>('general');
+  const [confirmedSprintStart, setConfirmedSprintStart] = useState<number | null>(null);
+  const [proposedSprintStart, setProposedSprintStart] = useState<number | null>(null);
+  const [startLine, setStartLine] = useState<TwoPointLine | null>(null);
+  const [reactionTime, setReactionTime] = useState(0.150);
+  const [reactionTimeEnabled, setReactionTimeEnabled] = useState(true);
+  const [flyDistance, setFlyDistance] = useState(10);
+  const [poseFrameW, setPoseFrameW] = useState(0);
+  const [poseFrameH, setPoseFrameH] = useState(0);
+
   // Wrap in () => fn to prevent React treating stored functions as updaters
   const setDeleteContact = useCallback((fn: ((id: string) => void) | null) => {
     _setDeleteContact(() => fn);
@@ -85,6 +131,24 @@ export const VideoProvider = ({ children }: { children: ReactNode }) => {
         showCoMEvents,
         sprintStart,
         sprintFinish,
+        sprintMode,
+        setSprintMode: useCallback((m) => setSprintMode(m), []),
+        confirmedSprintStart,
+        setConfirmedSprintStart: useCallback((f) => setConfirmedSprintStart(f), []),
+        proposedSprintStart,
+        setProposedSprintStart: useCallback((f) => setProposedSprintStart(f), []),
+        startLine,
+        setStartLine: useCallback((l) => setStartLine(l), []),
+        reactionTime,
+        setReactionTime: useCallback((t) => setReactionTime(t), []),
+        reactionTimeEnabled,
+        setReactionTimeEnabled: useCallback((v) => setReactionTimeEnabled(v), []),
+        flyDistance,
+        setFlyDistance: useCallback((d) => setFlyDistance(d), []),
+        poseFrameW,
+        setPoseFrameW: useCallback((w) => setPoseFrameW(w), []),
+        poseFrameH,
+        setPoseFrameH: useCallback((h) => setPoseFrameH(h), []),
         setCurrentFrame: useCallback((f) => setCurrentFrame(f), []),
         setFps: useCallback((f) => setFps(f), []),
         setTotalFrames: useCallback((n) => setTotalFrames(n), []),

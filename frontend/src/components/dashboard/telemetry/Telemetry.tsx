@@ -1,6 +1,6 @@
 // ─── Telemetry Panel ──────────────────────────────────────────────────────────
 // Reads all state from VideoContext and PoseContext — no props needed.
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useVideoContext } from '../VideoContext';
 import { usePose } from '../PoseContext';
 import type { JointTimeSeries, GroundContactEvent, CoMSeries } from '../useSprintMetrics';
@@ -381,128 +381,99 @@ function ContactsTab({
 // ── CoM tab ────────────────────────────────────────────────────────────────────
 function CoMTab({
   comSeries,
+  com,
   frame,
   fps,
   comEvents,
   sprintStart,
   sprintFinish,
+  sprintMode,
+  confirmedSprintStart,
+  startLine,
+  reactionTime,
+  reactionTimeEnabled,
+  flyDistance,
+  setReactionTime,
+  setReactionTimeEnabled,
+  setFlyDistance,
+  poseFrameW,
+  poseFrameH,
 }: {
   comSeries: CoMSeries;
+  com: { frame: number; x: number; y: number }[];
   frame: number;
   fps: number;
   comEvents: { frame: number; comSite: { x: number; y: number } }[];
   sprintStart: { frame: number } | null;
   sprintFinish: { frame: number } | null;
+  sprintMode: 'general' | 'static' | 'flying';
+  confirmedSprintStart: number | null;
+  startLine: { p1: { x: number; y: number }; p2: { x: number; y: number } } | null;
+  reactionTime: number;
+  reactionTimeEnabled: boolean;
+  flyDistance: number;
+  setReactionTime: (t: number) => void;
+  setReactionTimeEnabled: (v: boolean) => void;
+  setFlyDistance: (d: number) => void;
+  setConfirmedSprintStart: (f: number | null) => void;
+  poseFrameW: number;
+  poseFrameH: number;
 }) {
-  const n = comSeries.speed.length;
+  const n = comSeries.x.length;
   const f = Math.min(frame, n - 1);
   const step = Math.max(1, Math.floor(n / 100));
-
   const spark = (arr: number[]) => arr.filter((_, i) => i % step === 0);
   const pct = n > 1 ? (f / (n - 1)) * 100 : 0;
   const color = '#a78bfa';
 
-  // Reference frame: all displacements relative to sprint start marker when set.
-  const startIdx = sprintStart ? Math.min(sprintStart.frame, n - 1) : 0;
-  const xAtStart = comSeries.x[startIdx] ?? 0;
-  const relDisp = (frameIdx: number) =>
-    (comSeries.x[Math.min(frameIdx, n - 1)] ?? 0) - xAtStart;
-
-  // Sprint segment stats (start → finish markers).
-  const seg = (() => {
-    if (!sprintStart || !sprintFinish || sprintStart.frame >= sprintFinish.frame) return null;
-    const sf = Math.min(sprintStart.frame, n - 1);
-    const ff = Math.min(sprintFinish.frame, n - 1);
-    const elapsedTime = (ff - sf) / fps;
-    const dist = (comSeries.x[ff] ?? 0) - (comSeries.x[sf] ?? 0);
-    const avgSpeed = elapsedTime > 0 ? dist / elapsedTime : 0;
-    return { elapsedTime, dist, avgSpeed };
-  })();
-
-  // Per-frame velocity: displacement / elapsed time since sprint start.
-  // Identical to what a timing gate reads — cumulative average from first movement.
-  // At frame fi: v = (x[fi] - x[start]) / ((fi - startIdx) / fps)
-  // Falls back to instantaneous |vx| when no sprint start is set.
-  const gateSpeed = (() => {
-    if (!sprintStart) return comSeries.speed;
-    const result = new Array(n).fill(0) as number[];
-    for (let fi = startIdx + 1; fi < n; fi++) {
-      const d = (comSeries.x[fi] ?? 0) - xAtStart;
-      const elapsed = (fi - startIdx) / fps;
-      result[fi] = elapsed > 0 ? d / elapsed : 0;
+  // Find the frame where CoM crosses a drawn line (normalized coords).
+  const findLineCrossing = useCallback((
+    line: { p1: { x: number; y: number }; p2: { x: number; y: number } } | null,
+  ): number | null => {
+    if (!line || com.length === 0 || poseFrameW === 0 || poseFrameH === 0) return null;
+    const { p1, p2 } = line;
+    const sd = (nx: number, ny: number) =>
+      (p2.x - p1.x) * (ny - p1.y) - (p2.y - p1.y) * (nx - p1.x);
+    let prevSign: number | null = null;
+    for (let fi = 0; fi < com.length; fi++) {
+      const nx = com[fi].x / poseFrameW;
+      const ny = com[fi].y / poseFrameH;
+      const d = sd(nx, ny);
+      if (d === 0) return fi;
+      const sign = d > 0 ? 1 : -1;
+      if (prevSign !== null && sign !== prevSign) return fi;
+      prevSign = sign;
     }
-    return result;
-  })();
+    return null;
+  }, [com, poseFrameW, poseFrameH]);
 
-  // Per-frame acceleration: central-difference of gateSpeed w.r.t. time.
-  const gateAccel = (() => {
-    if (!sprintStart) return comSeries.accel;
-    const result = new Array(n).fill(0) as number[];
-    for (let fi = 1; fi < n - 1; fi++) {
-      result[fi] = (gateSpeed[fi + 1] - gateSpeed[fi - 1]) * fps / 2;
-    }
-    if (n > 1) {
-      result[0] = (gateSpeed[1] - gateSpeed[0]) * fps;
-      result[n - 1] = (gateSpeed[n - 1] - gateSpeed[n - 2]) * fps;
-    }
-    return result;
-  })();
-
-  const speedLabel = sprintStart ? 'Avg speed (disp / elapsed)' : 'Horizontal speed |vx|';
-  const accelLabel = sprintStart ? 'Δv/Δt' : '|a|';
-
-  return (
-    <div>
-      {/* Sprint segment summary */}
-      {seg && (
-        <>
-          <SectionHead label="Sprint segment (start → finish)" color={color} />
-          <div className="grid grid-cols-3 divide-x divide-zinc-100 dark:divide-zinc-800/60 border-b border-zinc-100 dark:border-zinc-800/60">
-            {[
-              { label: 'Time', value: seg.elapsedTime.toFixed(2), unit: 's' },
-              { label: 'Net disp.', value: seg.dist.toFixed(2), unit: 'm' },
-              { label: 'Avg speed', value: seg.avgSpeed.toFixed(2), unit: 'm/s' },
-            ].map(({ label, value, unit }) => (
-              <div key={label} className="px-2 py-2 flex flex-col gap-0.5">
-                <span className="text-[8px] uppercase tracking-widest text-zinc-500">{label}</span>
-                <div className="flex items-baseline gap-0.5">
-                  <span className="text-sm font-mono tabular-nums" style={{ color }}>{value}</span>
-                  <span className="text-[9px] font-mono text-zinc-500">{unit}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      <SectionHead label="Horizontal displacement (m)" color={color} />
+  // Shared sparklines + events table for static/general modes.
+  const renderSpeedAccel = (
+    gateSpeed: number[],
+    gateAccel: number[],
+    relDisp: (fi: number) => number,
+    startIdx: number,
+    xAtStart: number,
+    speedSubLabel: string,
+    hasStart: boolean,
+  ) => (
+    <>
+      <SectionHead label="Displacement (m)" color={color} />
       <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/60">
         <div className="flex justify-between mb-1">
-          <span className="text-[9px] font-mono text-zinc-500">
-            {sprintStart ? 'Displacement from start line' : 'Displacement from frame 0'}
-          </span>
-          <span
-            className="text-[9px] font-mono tabular-nums"
-            style={{ color: relDisp(f) < 0 ? '#f97316' : color }}
-          >
+          <span className="text-[9px] font-mono text-zinc-500">{hasStart ? 'From start line' : 'From frame 0'}</span>
+          <span className="text-[9px] font-mono tabular-nums" style={{ color: relDisp(f) < 0 ? '#f97316' : color }}>
             {relDisp(f).toFixed(2)} m
           </span>
         </div>
-        <Sparkline
-          data={spark(comSeries.x.map((v) => v - xAtStart))}
-          color={color}
-          height={18}
-          playheadPct={pct}
-        />
+        <Sparkline data={spark(comSeries.x.map((_, i) => relDisp(i)))} color={color} height={18} playheadPct={pct} />
       </div>
 
       <SectionHead label="Speed (m/s)" color={color} />
       <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/60">
         <div className="flex justify-between mb-1">
-          <span className="text-[9px] font-mono text-zinc-500">{speedLabel}</span>
-          <span className="text-[9px] font-mono tabular-nums" style={{ color }}>
-            {(gateSpeed[f] ?? 0).toFixed(2)} m/s
-          </span>
+          <span className="text-[9px] font-mono text-zinc-500">{speedSubLabel}</span>
+          <span className="text-[9px] font-mono tabular-nums" style={{ color }}>{(gateSpeed[f] ?? 0).toFixed(2)} m/s</span>
         </div>
         <Sparkline data={spark(gateSpeed)} color={color} height={22} playheadPct={pct} />
       </div>
@@ -510,10 +481,8 @@ function CoMTab({
       <SectionHead label="Acceleration (m/s²)" color={color} />
       <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/60">
         <div className="flex justify-between mb-1">
-          <span className="text-[9px] font-mono text-zinc-500">{accelLabel}</span>
-          <span className="text-[9px] font-mono tabular-nums" style={{ color }}>
-            {(gateAccel[f] ?? 0).toFixed(2)} m/s²
-          </span>
+          <span className="text-[9px] font-mono text-zinc-500">Δv/Δt</span>
+          <span className="text-[9px] font-mono tabular-nums" style={{ color }}>{(gateAccel[f] ?? 0).toFixed(2)} m/s²</span>
         </div>
         <Sparkline data={spark(gateAccel)} color={color} height={18} playheadPct={pct} />
       </div>
@@ -525,10 +494,8 @@ function CoMTab({
             <table className="w-full text-[8px] font-mono border-collapse">
               <thead>
                 <tr className="border-b border-zinc-200 dark:border-zinc-800">
-                  {['#', 'Frame', 'Speed (m/s)', 'Accel (m/s²)', sprintStart ? 'Disp from start (m)' : 'Position (m)'].map((h) => (
-                    <th key={h} className="px-1.5 py-1 text-left text-zinc-400 uppercase tracking-wide font-normal">
-                      {h}
-                    </th>
+                  {['#', 'Frame', 'Speed (m/s)', 'Accel (m/s²)', hasStart ? 'Disp (m)' : 'Pos (m)'].map((h) => (
+                    <th key={h} className="px-1.5 py-1 text-left text-zinc-400 uppercase tracking-wide font-normal">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -539,14 +506,10 @@ function CoMTab({
                     <tr key={i} className="border-b border-zinc-100 dark:border-zinc-800/40">
                       <td className="px-1.5 py-0.5 text-zinc-400">E{i + 1}</td>
                       <td className="px-1.5 py-0.5 tabular-nums text-zinc-500">{evt.frame}</td>
-                      <td className="px-1.5 py-0.5 tabular-nums" style={{ color }}>
-                        {(gateSpeed[ef] ?? 0).toFixed(2)}
-                      </td>
+                      <td className="px-1.5 py-0.5 tabular-nums" style={{ color }}>{(gateSpeed[ef] ?? 0).toFixed(2)}</td>
+                      <td className="px-1.5 py-0.5 tabular-nums text-zinc-500">{(gateAccel[ef] ?? 0).toFixed(2)}</td>
                       <td className="px-1.5 py-0.5 tabular-nums text-zinc-500">
-                        {(gateAccel[ef] ?? 0).toFixed(2)}
-                      </td>
-                      <td className="px-1.5 py-0.5 tabular-nums text-zinc-500">
-                        {sprintStart ? relDisp(ef).toFixed(2) : (comSeries.x[ef] ?? 0).toFixed(2)}
+                        {hasStart ? relDisp(ef).toFixed(2) : (comSeries.x[ef] ?? 0).toFixed(2)}
                       </td>
                     </tr>
                   );
@@ -556,8 +519,210 @@ function CoMTab({
           </div>
         </>
       )}
-    </div>
+    </>
   );
+
+  // ── GENERAL MODE ──────────────────────────────────────────────────────────────
+  if (sprintMode === 'general') {
+    const startIdx = confirmedSprintStart !== null ? Math.min(confirmedSprintStart, n - 1) : 0;
+    const xAtStart = comSeries.x[startIdx] ?? 0;
+    const relDisp = (fi: number) => (comSeries.x[Math.min(fi, n - 1)] ?? 0) - xAtStart;
+
+    const gateSpeed = (() => {
+      if (confirmedSprintStart === null) return comSeries.speed;
+      const result = new Array(n).fill(0) as number[];
+      for (let fi = startIdx + 1; fi < n; fi++) {
+        const d = (comSeries.x[fi] ?? 0) - xAtStart;
+        const elapsed = (fi - startIdx) / fps;
+        result[fi] = elapsed > 0 ? d / elapsed : 0;
+      }
+      return result;
+    })();
+
+    const gateAccel = (() => {
+      if (confirmedSprintStart === null) return comSeries.accel;
+      const result = new Array(n).fill(0) as number[];
+      for (let fi = 1; fi < n - 1; fi++) result[fi] = (gateSpeed[fi + 1] - gateSpeed[fi - 1]) * fps / 2;
+      if (n > 1) { result[0] = (gateSpeed[1] - gateSpeed[0]) * fps; result[n - 1] = (gateSpeed[n - 1] - gateSpeed[n - 2]) * fps; }
+      return result;
+    })();
+
+    return (
+      <div>
+        {renderSpeedAccel(gateSpeed, gateAccel, relDisp, startIdx, xAtStart,
+          confirmedSprintStart !== null ? 'Disp / elapsed' : 'Instantaneous |vx|',
+          confirmedSprintStart !== null)}
+      </div>
+    );
+  }
+
+  // ── STATIC MODE ───────────────────────────────────────────────────────────────
+  if (sprintMode === 'static') {
+    if (confirmedSprintStart === null) {
+      return (
+        <div className="px-4 py-8 flex flex-col gap-2 items-center text-center">
+          <div className="w-2 h-2 rounded-full bg-amber-400" />
+          <span className="text-[9px] uppercase tracking-widest text-amber-500">Sprint start required</span>
+          <span className="text-[9px] text-zinc-500 font-mono">Seek to the frame when the gun fires, then click the Flag button to confirm</span>
+        </div>
+      );
+    }
+    if (!startLine) {
+      return (
+        <div className="px-4 py-8 flex flex-col gap-2 items-center text-center">
+          <div className="w-2 h-2 rounded-full bg-cyan-400" />
+          <span className="text-[9px] uppercase tracking-widest text-cyan-500">Start line required</span>
+          <span className="text-[9px] text-zinc-500 font-mono">Click "Draw Start Line" in the viewport header to mark displacement = 0</span>
+        </div>
+      );
+    }
+
+    const startIdx = Math.min(confirmedSprintStart, n - 1);
+    const startLineCrossing = findLineCrossing(startLine);
+    const xAtStart = startLineCrossing !== null
+      ? (comSeries.x[Math.min(startLineCrossing, n - 1)] ?? 0)
+      : (comSeries.x[startIdx] ?? 0);
+    const RT = reactionTimeEnabled ? reactionTime : 0;
+
+    const gateSpeed = (() => {
+      const result = new Array(n).fill(0) as number[];
+      for (let fi = startIdx + 1; fi < n; fi++) {
+        const d = (comSeries.x[fi] ?? 0) - xAtStart;
+        if (d < 0) continue;
+        const elapsed = (fi - startIdx) / fps + RT;
+        result[fi] = elapsed > 0 ? d / elapsed : 0;
+      }
+      return result;
+    })();
+
+    const gateAccel = (() => {
+      const result = new Array(n).fill(0) as number[];
+      for (let fi = 1; fi < n - 1; fi++) result[fi] = (gateSpeed[fi + 1] - gateSpeed[fi - 1]) * fps / 2;
+      if (n > 1) { result[0] = (gateSpeed[1] - gateSpeed[0]) * fps; result[n - 1] = (gateSpeed[n - 1] - gateSpeed[n - 2]) * fps; }
+      return result;
+    })();
+
+    const relDisp = (fi: number) => Math.max(0, (comSeries.x[Math.min(fi, n - 1)] ?? 0) - xAtStart);
+
+    return (
+      <div>
+        {/* RT controls */}
+        <div className="px-3 py-1.5 border-b border-zinc-100 dark:border-zinc-800/60 flex items-center gap-2 flex-wrap">
+          <span className="text-[8px] uppercase tracking-widest text-zinc-500 shrink-0">Reaction time</span>
+          <button
+            onClick={() => setReactionTimeEnabled(!reactionTimeEnabled)}
+            className={`text-[9px] font-mono px-1.5 py-0.5 rounded-sm border transition-colors cursor-pointer
+              ${reactionTimeEnabled ? 'border-violet-500/50 text-violet-400 bg-violet-500/10' : 'border-zinc-600 text-zinc-500'}`}
+          >
+            {reactionTimeEnabled ? 'ON' : 'OFF'}
+          </button>
+          {reactionTimeEnabled && (
+            <>
+              <input
+                type="number"
+                value={Math.round(reactionTime * 1000)}
+                onChange={(e) => setReactionTime(Math.max(0, Math.min(500, Number(e.target.value))) / 1000)}
+                className="w-12 text-[9px] font-mono bg-zinc-900 border border-zinc-700 rounded-sm px-1 py-0.5 text-violet-300 tabular-nums text-center"
+                min={0} max={500} step={10}
+              />
+              <span className="text-[9px] text-zinc-500 font-mono">ms</span>
+            </>
+          )}
+          {startLineCrossing !== null && (
+            <span className="ml-auto text-[9px] font-mono text-cyan-500/70">Start line @ fr {startLineCrossing}</span>
+          )}
+        </div>
+        {renderSpeedAccel(gateSpeed, gateAccel, relDisp, startIdx, xAtStart,
+          `Disp / (elapsed${reactionTimeEnabled ? ` + ${Math.round(reactionTime * 1000)}ms RT` : ''})`,
+          true)}
+      </div>
+    );
+  }
+
+  // ── FLYING MODE ───────────────────────────────────────────────────────────────
+  if (sprintMode === 'flying') {
+    if (!sprintStart) {
+      return (
+        <div className="px-4 py-8 flex flex-col gap-2 items-center text-center">
+          <div className="w-2 h-2 rounded-full bg-cyan-400" />
+          <span className="text-[9px] uppercase tracking-widest text-cyan-500">Fly zone start required</span>
+          <span className="text-[9px] text-zinc-500 font-mono">Use Annotate → Start to mark when the athlete enters the fly zone</span>
+        </div>
+      );
+    }
+    if (!sprintFinish) {
+      return (
+        <div className="px-4 py-8 flex flex-col gap-2 items-center text-center">
+          <div className="w-2 h-2 rounded-full bg-orange-400" />
+          <span className="text-[9px] uppercase tracking-widest text-orange-500">Fly zone end required</span>
+          <span className="text-[9px] text-zinc-500 font-mono">Use Annotate → Finish to mark when the athlete exits the fly zone</span>
+        </div>
+      );
+    }
+
+    const flyStart = Math.min(sprintStart.frame, n - 1);
+    const flyEnd = Math.min(sprintFinish.frame, n - 1);
+    if (flyEnd <= flyStart) {
+      return (
+        <div className="px-4 py-8 flex flex-col gap-2 items-center text-center">
+          <span className="text-[9px] uppercase tracking-widest text-zinc-500">Finish must be after Start</span>
+        </div>
+      );
+    }
+
+    const flyTime = (flyEnd - flyStart) / fps;
+    const flyVelocity = flyTime > 0 ? flyDistance / flyTime : 0;
+
+    return (
+      <div>
+        <div className="px-3 py-1.5 border-b border-zinc-100 dark:border-zinc-800/60 flex items-center gap-2">
+          <span className="text-[8px] uppercase tracking-widest text-zinc-500 shrink-0">Fly distance</span>
+          <input
+            type="number"
+            value={flyDistance}
+            onChange={(e) => setFlyDistance(Math.max(1, Number(e.target.value)))}
+            className="w-12 text-[9px] font-mono bg-zinc-900 border border-zinc-700 rounded-sm px-1 py-0.5 text-orange-300 tabular-nums text-center"
+            min={1} step={5}
+          />
+          <span className="text-[9px] text-zinc-500 font-mono">m</span>
+        </div>
+
+        <SectionHead label="Fly zone result" color="#f97316" />
+        <div className="grid grid-cols-3 divide-x divide-zinc-100 dark:divide-zinc-800/60 border-b border-zinc-100 dark:border-zinc-800/60">
+          {[
+            { label: 'Fly time', value: flyTime.toFixed(3), unit: 's' },
+            { label: 'Distance', value: flyDistance.toFixed(1), unit: 'm' },
+            { label: 'Velocity', value: flyVelocity.toFixed(2), unit: 'm/s' },
+          ].map(({ label, value, unit }) => (
+            <div key={label} className="px-2 py-2 flex flex-col gap-0.5">
+              <span className="text-[8px] uppercase tracking-widest text-zinc-500">{label}</span>
+              <div className="flex items-baseline gap-0.5">
+                <span className="text-sm font-mono tabular-nums" style={{ color: '#f97316' }}>{value}</span>
+                <span className="text-[9px] font-mono text-zinc-500">{unit}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/60 flex flex-col gap-1">
+          <div className="flex justify-between">
+            <span className="text-[9px] font-mono text-zinc-500">Zone start (Annotate → Start)</span>
+            <span className="text-[9px] font-mono text-cyan-400">Fr {flyStart} · {(flyStart / fps).toFixed(3)}s</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-[9px] font-mono text-zinc-500">Zone end (Annotate → Finish)</span>
+            <span className="text-[9px] font-mono text-orange-400">Fr {flyEnd} · {(flyEnd / fps).toFixed(3)}s</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-[9px] font-mono text-zinc-500">Frames in zone</span>
+            <span className="text-[9px] font-mono text-zinc-300">{flyEnd - flyStart} fr @ {fps.toFixed(2)} fps</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 // ── Tabs ───────────────────────────────────────────────────────────────────────
@@ -573,7 +738,14 @@ const TABS: { key: Tab; label: string }[] = [
 
 // ── Main component ─────────────────────────────────────────────────────────────
 export const Telemetry = () => {
-  const { currentFrame, fps, calibration, metrics, deleteContact, editContact, comEvents, showCoMEvents, sprintStart, sprintFinish } = useVideoContext();
+  const {
+    currentFrame, fps, calibration, metrics, deleteContact, editContact,
+    comEvents, showCoMEvents, sprintStart, sprintFinish,
+    sprintMode, confirmedSprintStart, startLine,
+    reactionTime, reactionTimeEnabled, flyDistance,
+    setReactionTime, setReactionTimeEnabled, setFlyDistance, setConfirmedSprintStart,
+    poseFrameW, poseFrameH,
+  } = useVideoContext();
   const { status } = usePose();
   const [tab, setTab] = useState<Tab>('summary');
 
@@ -709,29 +881,6 @@ export const Telemetry = () => {
               color="#fb923c"
             />
 
-            <SectionHead label="Centre of mass" color="#a78bfa" />
-            <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/60">
-              <div className="flex justify-between mb-1">
-                <span className="text-[9px] font-mono text-zinc-500">
-                  Horizontal speed
-                </span>
-                <span className="text-[9px] font-mono tabular-nums" style={{ color: '#a78bfa' }}>
-                  {metrics.comSeries.speed[Math.min(f, metrics.comSeries.speed.length - 1)]?.toFixed(2) ?? '—'} m/s
-                </span>
-              </div>
-              <Sparkline
-                data={metrics.comSeries.speed.filter(
-                  (_, i) => i % Math.max(1, Math.floor(metrics.comSeries.speed.length / 100)) === 0,
-                )}
-                color="#a78bfa"
-                height={28}
-                playheadPct={
-                  metrics.comSeries.speed.length > 1
-                    ? (Math.min(f, metrics.comSeries.speed.length - 1) / (metrics.comSeries.speed.length - 1)) * 100
-                    : 0
-                }
-              />
-            </div>
           </>
         )}
 
@@ -750,11 +899,24 @@ export const Telemetry = () => {
         {tab === 'com' && (
           <CoMTab
             comSeries={metrics.comSeries}
+            com={metrics.com}
             frame={f}
             fps={fps}
             comEvents={showCoMEvents ? comEvents : []}
             sprintStart={sprintStart}
             sprintFinish={sprintFinish}
+            sprintMode={sprintMode}
+            confirmedSprintStart={confirmedSprintStart}
+            startLine={startLine}
+            reactionTime={reactionTime}
+            reactionTimeEnabled={reactionTimeEnabled}
+            flyDistance={flyDistance}
+            setReactionTime={setReactionTime}
+            setReactionTimeEnabled={setReactionTimeEnabled}
+            setFlyDistance={setFlyDistance}
+            setConfirmedSprintStart={setConfirmedSprintStart}
+            poseFrameW={poseFrameW}
+            poseFrameH={poseFrameH}
           />
         )}
 

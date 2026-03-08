@@ -85,6 +85,8 @@ interface ControlPanelProps {
   onClearCoMEvents?: () => void;
   /** Distance CoM has travelled since sprint start marker, in metres (null when no marker set). */
   comDistFromStart?: number | null;
+  /** Auto-detected proposed sprint start frame (green dashed marker on scrubber). */
+  proposedStartFrame?: number | null;
   disabled?: boolean;
 }
 
@@ -338,6 +340,7 @@ export function ControlPanel({
   onRecordCoMEvent,
   onClearCoMEvents,
   comDistFromStart = null,
+  proposedStartFrame = null,
   disabled = false,
 }: ControlPanelProps) {
   const effectiveFps = (fps || 30) * (playbackRate || 1);
@@ -463,8 +466,37 @@ export function ControlPanel({
                   style={{ left: `${(startFrame / (totalFrames - 1)) * 100}%` }}
                 />
               )}
+              {proposedStartFrame !== null && proposedStartFrame !== startFrame && totalFrames > 1 && (
+                <div
+                  className="-top-1 -bottom-1 absolute w-px border-l border-dashed border-emerald-500/60"
+                  style={{ left: `${(proposedStartFrame / (totalFrames - 1)) * 100}%` }}
+                />
+              )}
             </div>
           </div>
+
+          {/* Sprint start row — proposed + confirm */}
+          {(startFrame !== null || proposedStartFrame != null) && (
+            <div className="px-4 pb-0.5 flex items-center gap-2">
+              <span className="text-[9px] uppercase tracking-widest text-zinc-500 shrink-0">Sprint Start</span>
+              {startFrame !== null ? (
+                <>
+                  <span className="text-[9px] font-mono text-emerald-400 tabular-nums">Frame {startFrame} confirmed</span>
+                  <button onClick={onClearStartFrame} className="text-[9px] uppercase tracking-widest text-red-500/60 hover:text-red-400 cursor-pointer ml-1">Clear</button>
+                </>
+              ) : proposedStartFrame != null ? (
+                <>
+                  <span className="text-[9px] font-mono text-amber-400 tabular-nums">Frame {proposedStartFrame} proposed</span>
+                  <button
+                    onClick={onSetStartFrame}
+                    className="text-[9px] uppercase tracking-widest text-emerald-400 hover:text-emerald-300 cursor-pointer border border-emerald-500/40 px-1 rounded-sm"
+                  >
+                    Confirm
+                  </button>
+                </>
+              ) : null}
+            </div>
+          )}
 
           <TimeRuler
             totalFrames={totalFrames}
@@ -568,8 +600,10 @@ export function ControlPanel({
               }
               tooltip={
                 startFrame !== null
-                  ? `Start: frame ${startFrame} — click to clear`
-                  : 'Set analysis start (current frame)'
+                  ? `Sprint start: frame ${startFrame} — click to clear`
+                  : proposedStartFrame != null
+                    ? `Override sprint start (proposed: ${proposedStartFrame})`
+                    : 'Set sprint start (current frame)'
               }
               active={startFrame !== null}
             >
