@@ -41,14 +41,6 @@ export const LANDMARKS: LandmarkDef[] = [
   { index: 21, name: 'Right Small Toe', region: 'lower', defaultOff: true },
   { index: 22, name: 'Right Heel', region: 'lower' },
 
-  // ── Face (23-90) — all off by default ────────────────────────────────────
-  ...Array.from({ length: 68 }, (_, i) => ({
-    index: 23 + i,
-    name: `Face ${i}`,
-    region: 'face' as const,
-    defaultOff: true,
-  })),
-
   // ── Left hand (91-112) — all off by default ───────────────────────────────
   { index: 91, name: 'L Wrist', region: 'hand', defaultOff: true },
   { index: 92, name: 'L Thumb CMC', region: 'hand', defaultOff: true },

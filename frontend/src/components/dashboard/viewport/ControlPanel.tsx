@@ -15,6 +15,10 @@ import {
   ScanLine,
   Settings2,
   Scissors,
+  MapPin,
+  Activity,
+  EyeOff,
+  Eye,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -70,6 +74,17 @@ interface ControlPanelProps {
   onTogglePosePanel: () => void;
   showTrimCropPanel: boolean;
   onToggleTrimCropPanel: () => void;
+  // CoM controls
+  poseReady?: boolean;
+  showCoM?: boolean;
+  onToggleCoM?: () => void;
+  comEventCount?: number;
+  showCoMEvents?: boolean;
+  onToggleCoMEvents?: () => void;
+  onRecordCoMEvent?: () => void;
+  onClearCoMEvents?: () => void;
+  /** Distance CoM has travelled since sprint start marker, in metres (null when no marker set). */
+  comDistFromStart?: number | null;
   disabled?: boolean;
 }
 
@@ -314,6 +329,15 @@ export function ControlPanel({
   onTogglePosePanel,
   showTrimCropPanel,
   onToggleTrimCropPanel,
+  poseReady = false,
+  showCoM = true,
+  onToggleCoM,
+  comEventCount = 0,
+  showCoMEvents = true,
+  onToggleCoMEvents,
+  onRecordCoMEvent,
+  onClearCoMEvents,
+  comDistFromStart = null,
   disabled = false,
 }: ControlPanelProps) {
   const effectiveFps = (fps || 30) * (playbackRate || 1);
@@ -649,6 +673,52 @@ export function ControlPanel({
             >
               <Scissors size={14} />
             </IconBtn>
+
+            {poseReady && (
+              <>
+                <div className="h-6 w-px bg-zinc-300 dark:bg-zinc-600 mx-1" />
+                <IconBtn
+                  onClick={() => onToggleCoM?.()}
+                  tooltip={showCoM ? 'Hide CoM marker' : 'Show CoM marker'}
+                  active={showCoM}
+                >
+                  <MapPin size={14} />
+                </IconBtn>
+                <IconBtn
+                  onClick={() => onRecordCoMEvent?.()}
+                  tooltip="Record CoM event at current frame"
+                >
+                  <Activity size={14} />
+                </IconBtn>
+                {comEventCount > 0 && (
+                  <>
+                    <IconBtn
+                      onClick={() => onToggleCoMEvents?.()}
+                      tooltip={showCoMEvents ? 'Hide CoM events' : 'Show CoM events'}
+                      active={showCoMEvents}
+                    >
+                      {showCoMEvents ? <Eye size={14} /> : <EyeOff size={14} />}
+                    </IconBtn>
+                    <button
+                      onClick={() => onClearCoMEvents?.()}
+                      className="text-[9px] uppercase tracking-widest text-red-500/70 hover:text-red-400 transition-colors cursor-pointer px-1"
+                      title="Clear all CoM events"
+                    >
+                      {comEventCount} evt
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+
+            {comDistFromStart !== null && (
+              <div className="flex items-center gap-1 px-2 py-0.5 bg-violet-500/10 border border-violet-500/30 rounded-sm">
+                <span className="text-[9px] uppercase tracking-widest text-zinc-500">CoM</span>
+                <span className="text-[10px] font-mono tabular-nums text-violet-400">
+                  {comDistFromStart.toFixed(2)}m
+                </span>
+              </div>
+            )}
 
             <div className="ml-auto flex items-center gap-2">
               {[

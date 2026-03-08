@@ -9,7 +9,8 @@ import { MeasurementOverlay } from './CalibrationAndMeasurements/MeasurementOver
 import { MeasurementPanel } from './CalibrationAndMeasurements/MeasurementPanel';
 import type { Measurement } from './CalibrationAndMeasurements/MeasurementOverlay';
 import { PoseOverlay } from './PoseEngine/PoseOverlay';
-import type { ViewMode, ManualContact } from './PoseEngine/PoseOverlay';
+import type { ViewMode, ManualContact, SprintMarker } from './PoseEngine/PoseOverlay';
+import type { CoMEvent } from '../VideoContext';
 import type { GroundContactEvent } from '../useSprintMetrics';
 import { PosePanel } from './PoseEngine/PosePanel';
 import { usePoseLandmarker } from './PoseEngine/usePoseLandmarker';
@@ -78,7 +79,18 @@ export const Viewport = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('video');
   const [mode3D, setMode3D] = useState(false);
   const [manualContacts, setManualContacts] = useState<ManualContact[]>([]);
-  const [annotateMode, setAnnotateMode] = useState<'off' | 'left' | 'right'>('off');
+  const [deletedContactIds, setDeletedContactIds] = useState<Set<string>>(new Set());
+  const [annotateMode, setAnnotateMode] = useState<'off' | 'left' | 'right' | 'start' | 'finish'>('off');
+  const [sprintStart, setSprintStart] = useState<SprintMarker | null>(null);
+  const [sprintFinish, setSprintFinish] = useState<SprintMarker | null>(null);
+  const [showCoM, setShowCoM] = useState(true);
+  const [comEvents, setComEvents] = useState<CoMEvent[]>([]);
+  const [showCoMEvents, setShowCoMEvents] = useState(true);
+  const manualContactsRef = useRef(manualContacts);
+  const mergedContactsRef = useRef<GroundContactEvent[]>([]);
+  const currentFrameRef = useRef(currentFrame);
+  useEffect(() => { manualContactsRef.current = manualContacts; }, [manualContacts]);
+  useEffect(() => { currentFrameRef.current = currentFrame; }, [currentFrame]);
   const [landmarkVisibility, setLandmarkVisibility] = useState<
     Record<number, boolean>
   >(buildDefaultVisibility);
@@ -133,24 +145,29 @@ export const Viewport = () => {
 
   // ── Merged contacts (auto-detected + manually placed) ─────────────────────
   const mergedContacts = useMemo<GroundContactEvent[]>(() => {
-    const autoEvents = metrics?.groundContacts ?? [];
-    if (manualContacts.length === 0) return autoEvents;
+    const autoEvents = (metrics?.groundContacts ?? []).filter(
+      (c) => !c.id || !deletedContactIds.has(c.id),
+    );
+    if (manualContacts.length === 0 && deletedContactIds.size === 0) return autoEvents;
 
     const contactDurationFrames = Math.max(1, Math.round(0.08 * fps));
-    const manualEvents: GroundContactEvent[] = manualContacts.map((m) => ({
-      id: m.id,
-      isManual: true,
-      foot: m.foot,
-      contactFrame: m.contactFrame,
-      liftFrame: m.contactFrame + contactDurationFrames,
-      contactTime: contactDurationFrames / fps,
-      flightTimeBefore: 0,
-      contactSite: m.contactSite,
-      comAtContact: { x: 0, y: 0 },
-      comDistance: 0,
-      strideLength: null,
-      strideFrequency: null,
-    }));
+    const manualEvents: GroundContactEvent[] = manualContacts.map((m) => {
+      const lift = m.liftFrame ?? m.contactFrame + contactDurationFrames;
+      return {
+        id: m.id,
+        isManual: true,
+        foot: m.foot,
+        contactFrame: m.contactFrame,
+        liftFrame: lift,
+        contactTime: (lift - m.contactFrame) / fps,
+        flightTimeBefore: 0,
+        contactSite: m.contactSite,
+        comAtContact: { x: 0, y: 0 },
+        comDistance: 0,
+        strideLength: null,
+        strideFrequency: null,
+      };
+    });
 
     const all = [...autoEvents, ...manualEvents].sort(
       (a, b) => a.contactFrame - b.contactFrame,
@@ -180,17 +197,31 @@ export const Viewport = () => {
         flightTimeBefore: Math.max(0, (c.contactFrame - prev.liftFrame) / fps),
       };
     });
-  }, [metrics, manualContacts, fps, calibration, poseFrameW]);
+  }, [metrics, manualContacts, deletedContactIds, fps, calibration, poseFrameW]);
 
-  const metricsWithMerged = useMemo(
-    () =>
-      !metrics
-        ? null
-        : manualContacts.length === 0
-          ? metrics
-          : { ...metrics, groundContacts: mergedContacts },
-    [metrics, manualContacts.length, mergedContacts],
-  );
+  useEffect(() => { mergedContactsRef.current = mergedContacts; }, [mergedContacts]);
+
+  const metricsWithMerged = useMemo(() => {
+    if (!metrics) return null;
+    if (manualContacts.length === 0 && deletedContactIds.size === 0) return metrics;
+    const gc = mergedContacts;
+    const _avg = (arr: number[]) =>
+      arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+    return {
+      ...metrics,
+      groundContacts: gc,
+      avgContactTime: _avg(gc.map((c) => c.contactTime)),
+      avgFlightTime: _avg(gc.map((c) => c.flightTimeBefore).filter((t) => t > 0)),
+      avgStrideLength: (() => {
+        const sl = gc.flatMap((c) => c.strideLength !== null ? [c.strideLength] : []);
+        return sl.length ? _avg(sl) : null;
+      })(),
+      avgStrideFreq: (() => {
+        const sf = gc.flatMap((c) => c.strideFrequency !== null ? [c.strideFrequency] : []);
+        return sf.length ? _avg(sf) : null;
+      })(),
+    };
+  }, [metrics, manualContacts.length, deletedContactIds.size, mergedContacts]);
 
   // ── Publish to VideoContext so Telemetry can read without prop-drilling ────
   const {
@@ -199,7 +230,69 @@ export const Viewport = () => {
     setTotalFrames: ctxSetTotal,
     setCalibration: ctxSetCal,
     setMetrics: ctxSetMetrics,
+    setDeleteContact: ctxSetDeleteContact,
+    setEditContact: ctxSetEditContact,
+    setComEvents: ctxSetComEvents,
+    setShowCoMEvents: ctxSetShowCoMEvents,
+    setSprintStart: ctxSetSprintStart,
+    setSprintFinish: ctxSetSprintFinish,
   } = useVideoContext();
+
+  // Stable delete handler — reads manualContactsRef to avoid stale closure
+  const handleDeleteContact = useCallback((id: string) => {
+    if (manualContactsRef.current.some((m) => m.id === id)) {
+      setManualContacts((prev) => prev.filter((m) => m.id !== id));
+    } else {
+      setDeletedContactIds((prev) => new Set([...prev, id]));
+    }
+  }, []);
+
+  // Stable edit handler — modifies a manual contact's frames, or converts auto→manual
+  const handleEditContact = useCallback((id: string, contactFrame: number, liftFrame: number) => {
+    if (manualContactsRef.current.some((m) => m.id === id)) {
+      setManualContacts((prev) =>
+        prev.map((m) => m.id === id ? { ...m, contactFrame, liftFrame } : m),
+      );
+    } else {
+      const existing = mergedContactsRef.current.find((c) => c.id === id);
+      if (!existing) return;
+      setDeletedContactIds((prev) => new Set([...prev, id]));
+      setManualContacts((prev) => [...prev, {
+        id: crypto.randomUUID(),
+        foot: existing.foot,
+        contactFrame,
+        liftFrame,
+        contactSite: existing.contactSite,
+      }]);
+    }
+  }, []);
+
+  // Record current CoM position as a timed event
+  const getKeypointsRef = useRef(getKeypoints);
+  useEffect(() => { getKeypointsRef.current = getKeypoints; }, [getKeypoints]);
+
+  const handleRecordCoMEvent = useCallback(() => {
+    const frame = currentFrameRef.current;
+    const kp = getKeypointsRef.current(frame);
+    const lHip = kp[11];
+    const rHip = kp[12];
+    if (!lHip || !rHip || lHip.score < 0.35 || rHip.score < 0.35) return;
+    const newEvent: CoMEvent = {
+      frame,
+      comSite: { x: (lHip.x + rHip.x) / 2, y: (lHip.y + rHip.y) / 2 },
+    };
+    setComEvents((prev) => [...prev, newEvent]);
+  }, []);
+
+  useEffect(() => {
+    ctxSetDeleteContact(handleDeleteContact);
+    return () => ctxSetDeleteContact(null);
+  }, [handleDeleteContact, ctxSetDeleteContact]);
+
+  useEffect(() => {
+    ctxSetEditContact(handleEditContact);
+    return () => ctxSetEditContact(null);
+  }, [handleEditContact, ctxSetEditContact]);
 
   useEffect(() => {
     ctxSetFrame(currentFrame);
@@ -228,6 +321,21 @@ export const Viewport = () => {
   useEffect(() => {
     ctxSetMetrics(metricsWithMerged);
   }, [metricsWithMerged, ctxSetMetrics]);
+
+  // Live CoM distance from sprint start marker to current frame (metres)
+  const comDistFromStart = useMemo(() => {
+    if (!sprintStart || !metricsWithMerged?.comSeries) return null;
+    const series = metricsWithMerged.comSeries.distance;
+    if (!series.length) return null;
+    const sf = Math.min(sprintStart.frame, series.length - 1);
+    const cf = Math.min(currentFrame, series.length - 1);
+    return (series[cf] ?? 0) - (series[sf] ?? 0);
+  }, [sprintStart, metricsWithMerged, currentFrame]);
+
+  useEffect(() => { ctxSetComEvents(comEvents); }, [comEvents, ctxSetComEvents]);
+  useEffect(() => { ctxSetShowCoMEvents(showCoMEvents); }, [showCoMEvents, ctxSetShowCoMEvents]);
+  useEffect(() => { ctxSetSprintStart(sprintStart); }, [sprintStart, ctxSetSprintStart]);
+  useEffect(() => { ctxSetSprintFinish(sprintFinish); }, [sprintFinish, ctxSetSprintFinish]);
 
   // Publish pose status into PoseContext so Telemetry can show correct empty state
   const { setStatus: ctxSetPoseStatus } = usePose();
@@ -495,7 +603,12 @@ export const Viewport = () => {
         setShowPosePanel(false);
         setViewMode('video');
         setManualContacts([]);
+        setDeletedContactIds(new Set());
         setAnnotateMode('off');
+        setSprintStart(null);
+        setSprintFinish(null);
+        setComEvents([]);
+        setShowCoMEvents(true);
         resetPose();
         setLandmarkVisibility(buildDefaultVisibility());
         setShowTrimCropPanel(false);
@@ -623,7 +736,7 @@ export const Viewport = () => {
                   }`}
               >
                 <Pencil className="w-2.5 h-2.5" />
-                <span>Annotate</span>
+                <span>Annotate{(sprintStart || sprintFinish) ? ' ●' : ''}</span>
               </button>
               {/* 3D mode indicator */}
               <button
@@ -739,9 +852,20 @@ export const Viewport = () => {
                       prev.map((m) => (m.id === id ? { ...m, contactSite: site } : m)),
                     )
                   }
-                  onDeleteContact={(id) =>
-                    setManualContacts((prev) => prev.filter((m) => m.id !== id))
-                  }
+                  onDeleteContact={handleDeleteContact}
+                  sprintStart={sprintStart}
+                  sprintFinish={sprintFinish}
+                  onSetMarker={(type, frame, site) => {
+                    if (type === 'start') setSprintStart({ frame, site });
+                    else setSprintFinish({ frame, site });
+                  }}
+                  onClearMarker={(type) => {
+                    if (type === 'start') setSprintStart(null);
+                    else setSprintFinish(null);
+                  }}
+                  showCoM={showCoM}
+                  comEvents={comEvents}
+                  showCoMEvents={showCoMEvents}
                 />
               )}
             </div>
@@ -842,30 +966,40 @@ export const Viewport = () => {
               <div className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none">
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/80 border border-amber-600/50 rounded-sm backdrop-blur-sm pointer-events-auto">
                   <div className="w-1.5 h-1.5 rounded-full animate-pulse bg-amber-400" />
-                  <span className="text-[11px] uppercase tracking-widest text-amber-300">
-                    Adding:{' '}
-                    <span
-                      className={
-                        annotateMode === 'left' ? 'text-emerald-400' : 'text-cyan-400'
-                      }
-                    >
-                      {annotateMode} foot
-                    </span>
-                  </span>
-                  <button
-                    onClick={() =>
-                      setAnnotateMode((m) => (m === 'left' ? 'right' : 'left'))
-                    }
-                    className="text-[11px] uppercase tracking-widest text-zinc-400 hover:text-zinc-200 border border-zinc-600 px-1.5 py-0.5 rounded-sm transition-colors"
-                  >
-                    Switch to {annotateMode === 'left' ? 'right' : 'left'}
-                  </button>
+                  {/* Mode selector */}
+                  <div className="flex items-center border border-zinc-600 rounded-sm overflow-hidden">
+                    {(
+                      [
+                        { key: 'left', label: 'Left', color: 'text-emerald-400' },
+                        { key: 'right', label: 'Right', color: 'text-cyan-400' },
+                        { key: 'start', label: 'Start', color: 'text-sky-400' },
+                        { key: 'finish', label: 'Finish', color: 'text-orange-400' },
+                      ] as const
+                    ).map(({ key, label, color }) => (
+                      <button
+                        key={key}
+                        onClick={() => setAnnotateMode(key)}
+                        className={`px-1.5 py-0.5 text-[10px] uppercase tracking-widest border-r border-zinc-600 last:border-r-0 transition-colors cursor-pointer
+                          ${annotateMode === key ? `bg-zinc-700 ${color}` : 'text-zinc-500 hover:text-zinc-300'}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                   {manualContacts.length > 0 && (
                     <button
                       onClick={() => setManualContacts([])}
                       className="text-[11px] uppercase tracking-widest text-red-500 hover:text-red-400 transition-colors"
                     >
-                      Clear all
+                      Clear steps
+                    </button>
+                  )}
+                  {(sprintStart || sprintFinish) && (
+                    <button
+                      onClick={() => { setSprintStart(null); setSprintFinish(null); }}
+                      className="text-[11px] uppercase tracking-widest text-red-500 hover:text-red-400 transition-colors"
+                    >
+                      Clear markers
                     </button>
                   )}
                   <button
@@ -1150,6 +1284,15 @@ export const Viewport = () => {
             setShowTrimCropPanel((v) => !v);
             resetTransform();
           }}
+          poseReady={poseEnabled && poseStatus === 'ready'}
+          showCoM={showCoM}
+          onToggleCoM={() => setShowCoM((v) => !v)}
+          comEventCount={comEvents.length}
+          showCoMEvents={showCoMEvents}
+          onToggleCoMEvents={() => setShowCoMEvents((v) => !v)}
+          onRecordCoMEvent={handleRecordCoMEvent}
+          onClearCoMEvents={() => setComEvents([])}
+          comDistFromStart={comDistFromStart}
           disabled={!videoMeta}
         />
       </div>

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useVideoContext } from '../VideoContext';
 import { usePose } from '../PoseContext';
-import type { JointTimeSeries, GroundContactEvent } from '../useSprintMetrics';
+import type { JointTimeSeries, GroundContactEvent, CoMSeries } from '../useSprintMetrics';
 
 // ── Sparkline ──────────────────────────────────────────────────────────────────
 function Sparkline({
@@ -150,11 +150,17 @@ function ContactsTab({
   contacts,
   fps,
   calibrated,
+  onDelete,
+  onEdit,
 }: {
   contacts: GroundContactEvent[];
   fps: number;
   calibrated: boolean;
+  onDelete?: ((id: string) => void) | null;
+  onEdit?: ((id: string, contactFrame: number, liftFrame: number) => void) | null;
 }) {
+  const [editing, setEditing] = useState<{ id: string; field: 'start' | 'end'; value: string } | null>(null);
+
   if (!contacts.length)
     return (
       <p className="px-3 py-4 text-[9px] font-mono text-zinc-500 italic">
@@ -233,7 +239,8 @@ function ContactsTab({
               {[
                 '#',
                 'Ft',
-                'Fr',
+                'In',
+                'Out',
                 'GCT',
                 'Flight',
                 'Stride',
@@ -247,6 +254,7 @@ function ContactsTab({
                   {h}
                 </th>
               ))}
+              {onDelete && <th className="px-1 py-1" />}
             </tr>
           </thead>
           <tbody>
@@ -266,8 +274,63 @@ function ContactsTab({
                   >
                     {c.foot === 'left' ? 'L' : 'R'}
                   </td>
-                  <td className="px-1.5 py-0.5 tabular-nums text-zinc-500">
-                    {c.contactFrame}
+                  {/* Inline-editable contact frame (In) */}
+                  <td className="px-1 py-0.5 tabular-nums text-zinc-500">
+                    {onEdit && c.id && editing?.id === c.id && editing.field === 'start' ? (
+                      <input
+                        autoFocus
+                        type="number"
+                        className="w-12 bg-zinc-800 text-zinc-200 text-[8px] font-mono px-1 rounded outline-none border border-violet-500/60"
+                        value={editing.value}
+                        onChange={(e) => setEditing({ ...editing, value: e.target.value })}
+                        onBlur={() => {
+                          const n = parseInt(editing.value, 10);
+                          if (!isNaN(n) && n >= 0) onEdit(c.id!, n, c.liftFrame);
+                          setEditing(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                          if (e.key === 'Escape') setEditing(null);
+                        }}
+                      />
+                    ) : (
+                      <span
+                        className={onEdit && c.id ? 'cursor-pointer hover:text-violet-400 transition-colors' : ''}
+                        onClick={() => onEdit && c.id && setEditing({ id: c.id, field: 'start', value: String(c.contactFrame) })}
+                        title={onEdit ? 'Click to edit contact frame' : undefined}
+                      >
+                        {c.contactFrame}
+                      </span>
+                    )}
+                  </td>
+                  {/* Inline-editable lift frame (Out) */}
+                  <td className="px-1 py-0.5 tabular-nums text-zinc-500">
+                    {onEdit && c.id && editing?.id === c.id && editing.field === 'end' ? (
+                      <input
+                        autoFocus
+                        type="number"
+                        className="w-12 bg-zinc-800 text-zinc-200 text-[8px] font-mono px-1 rounded outline-none border border-violet-500/60"
+                        value={editing.value}
+                        onChange={(e) => setEditing({ ...editing, value: e.target.value })}
+                        onBlur={() => {
+                          const n = parseInt(editing.value, 10);
+                          if (!isNaN(n) && n > c.contactFrame) onEdit(c.id!, c.contactFrame, n);
+                          setEditing(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                          if (e.key === 'Escape') setEditing(null);
+                        }}
+                      />
+                    ) : (
+                      <span
+                        className={onEdit && c.id ? 'cursor-pointer hover:text-violet-400 transition-colors' : ''}
+                        onClick={() => onEdit && c.id && setEditing({ id: c.id, field: 'end', value: String(c.liftFrame) })}
+                        title={onEdit ? 'Click to edit lift frame' : undefined}
+                      >
+                        {c.liftFrame}
+                      </span>
+                    )}
                   </td>
                   <td className="px-1.5 py-0.5 tabular-nums text-sky-500">
                     {(c.contactTime * 1000).toFixed(0)}ms
@@ -292,6 +355,19 @@ function ContactsTab({
                       ? `${c.comDistance.toFixed(calibrated ? 2 : 0)}${unit}`
                       : '—'}
                   </td>
+                  {onDelete && (
+                    <td className="px-1 py-0.5">
+                      {c.id && (
+                        <button
+                          onClick={() => onDelete(c.id!)}
+                          className="text-[9px] text-red-500/60 hover:text-red-400 transition-colors cursor-pointer leading-none"
+                          title="Delete contact"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -302,19 +378,165 @@ function ContactsTab({
   );
 }
 
+// ── CoM tab ────────────────────────────────────────────────────────────────────
+function CoMTab({
+  comSeries,
+  frame,
+  fps,
+  comEvents,
+  sprintStart,
+  sprintFinish,
+}: {
+  comSeries: CoMSeries;
+  frame: number;
+  fps: number;
+  comEvents: { frame: number; comSite: { x: number; y: number } }[];
+  sprintStart: { frame: number } | null;
+  sprintFinish: { frame: number } | null;
+}) {
+  const n = comSeries.speed.length;
+  const f = Math.min(frame, n - 1);
+  const step = Math.max(1, Math.floor(n / 100));
+
+  const spark = (arr: number[]) => arr.filter((_, i) => i % step === 0);
+  const pct = n > 1 ? (f / (n - 1)) * 100 : 0;
+  const color = '#a78bfa';
+
+  // Sprint segment stats (start→finish markers)
+  const seg = (() => {
+    if (!sprintStart || !sprintFinish || sprintStart.frame >= sprintFinish.frame) return null;
+    const sf = Math.min(sprintStart.frame, n - 1);
+    const ff = Math.min(sprintFinish.frame, n - 1);
+    const elapsedTime = (ff - sf) / fps;
+    const dist = (comSeries.distance[ff] ?? 0) - (comSeries.distance[sf] ?? 0);
+    const avgSpeed = elapsedTime > 0 ? dist / elapsedTime : 0;
+    return { elapsedTime, dist, avgSpeed };
+  })();
+
+  return (
+    <div>
+      {/* Sprint segment summary */}
+      {seg && (
+        <>
+          <SectionHead label="Sprint segment (start → finish)" color={color} />
+          <div className="grid grid-cols-3 divide-x divide-zinc-100 dark:divide-zinc-800/60 border-b border-zinc-100 dark:border-zinc-800/60">
+            {[
+              { label: 'Time', value: seg.elapsedTime.toFixed(2), unit: 's' },
+              { label: 'Distance', value: seg.dist.toFixed(2), unit: 'm' },
+              { label: 'Avg speed', value: seg.avgSpeed.toFixed(2), unit: 'm/s' },
+            ].map(({ label, value, unit }) => (
+              <div key={label} className="px-2 py-2 flex flex-col gap-0.5">
+                <span className="text-[8px] uppercase tracking-widest text-zinc-500">{label}</span>
+                <div className="flex items-baseline gap-0.5">
+                  <span className="text-sm font-mono tabular-nums" style={{ color }}>{value}</span>
+                  <span className="text-[9px] font-mono text-zinc-500">{unit}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <SectionHead label="Horizontal displacement (m)" color={color} />
+      <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/60">
+        <div className="flex justify-between mb-1">
+          <span className="text-[9px] font-mono text-zinc-500">Displacement from start</span>
+          <span className="text-[9px] font-mono tabular-nums" style={{ color }}>
+            {comSeries.x[f]?.toFixed(2) ?? '—'} m
+          </span>
+        </div>
+        <Sparkline data={spark(comSeries.x)} color={color} height={18} playheadPct={pct} />
+      </div>
+
+      <SectionHead label="Cumulative distance (m)" color={color} />
+      <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/60">
+        <div className="flex justify-between mb-1">
+          <span className="text-[9px] font-mono text-zinc-500">Total CoM path</span>
+          <span className="text-[9px] font-mono tabular-nums" style={{ color }}>
+            {comSeries.distance[f]?.toFixed(2) ?? '—'} m
+          </span>
+        </div>
+        <Sparkline data={spark(comSeries.distance)} color={color} height={18} playheadPct={pct} />
+      </div>
+
+      <SectionHead label="Speed (m/s)" color={color} />
+      <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/60">
+        <div className="flex justify-between mb-1">
+          <span className="text-[9px] font-mono text-zinc-500">Horizontal speed |vx|</span>
+          <span className="text-[9px] font-mono tabular-nums" style={{ color }}>
+            {comSeries.speed[f]?.toFixed(2) ?? '—'} m/s
+          </span>
+        </div>
+        <Sparkline data={spark(comSeries.speed)} color={color} height={22} playheadPct={pct} />
+      </div>
+
+      <SectionHead label="Acceleration (m/s²)" color={color} />
+      <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/60">
+        <div className="flex justify-between mb-1">
+          <span className="text-[9px] font-mono text-zinc-500">|a|</span>
+          <span className="text-[9px] font-mono tabular-nums" style={{ color }}>
+            {comSeries.accel[f]?.toFixed(2) ?? '—'} m/s²
+          </span>
+        </div>
+        <Sparkline data={spark(comSeries.accel)} color={color} height={18} playheadPct={pct} />
+      </div>
+
+      {comEvents.length > 0 && (
+        <>
+          <SectionHead label="Recorded Events" color={color} />
+          <div className="overflow-x-auto">
+            <table className="w-full text-[8px] font-mono border-collapse">
+              <thead>
+                <tr className="border-b border-zinc-200 dark:border-zinc-800">
+                  {['#', 'Frame', 'Speed (m/s)', 'Accel (m/s²)', 'Dist (m)'].map((h) => (
+                    <th key={h} className="px-1.5 py-1 text-left text-zinc-400 uppercase tracking-wide font-normal">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {comEvents.map((evt, i) => {
+                  const ef = Math.min(evt.frame, n - 1);
+                  return (
+                    <tr key={i} className="border-b border-zinc-100 dark:border-zinc-800/40">
+                      <td className="px-1.5 py-0.5 text-zinc-400">E{i + 1}</td>
+                      <td className="px-1.5 py-0.5 tabular-nums text-zinc-500">{evt.frame}</td>
+                      <td className="px-1.5 py-0.5 tabular-nums" style={{ color }}>
+                        {comSeries.speed[ef]?.toFixed(2) ?? '—'}
+                      </td>
+                      <td className="px-1.5 py-0.5 tabular-nums text-zinc-500">
+                        {comSeries.accel[ef]?.toFixed(2) ?? '—'}
+                      </td>
+                      <td className="px-1.5 py-0.5 tabular-nums text-zinc-500">
+                        {comSeries.distance[ef]?.toFixed(2) ?? '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Tabs ───────────────────────────────────────────────────────────────────────
-type Tab = 'summary' | 'steps' | 'lower' | 'upper';
+type Tab = 'summary' | 'steps' | 'lower' | 'upper' | 'com';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'summary', label: 'Summary' },
   { key: 'steps', label: 'Steps' },
   { key: 'lower', label: 'Lower' },
   { key: 'upper', label: 'Upper' },
+  { key: 'com', label: 'CoM' },
 ];
 
 // ── Main component ─────────────────────────────────────────────────────────────
 export const Telemetry = () => {
-  const { currentFrame, fps, calibration, metrics } = useVideoContext();
+  const { currentFrame, fps, calibration, metrics, deleteContact, editContact, comEvents, showCoMEvents, sprintStart, sprintFinish } = useVideoContext();
   const { status } = usePose();
   const [tab, setTab] = useState<Tab>('summary');
 
@@ -454,25 +676,21 @@ export const Telemetry = () => {
             <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/60">
               <div className="flex justify-between mb-1">
                 <span className="text-[9px] font-mono text-zinc-500">
-                  Vertical CoM oscillation
+                  Horizontal speed
                 </span>
-                <span className="text-[9px] font-mono text-zinc-500 tabular-nums">
-                  y={metrics.com[f]?.y.toFixed(0) ?? '—'}px
+                <span className="text-[9px] font-mono tabular-nums" style={{ color: '#a78bfa' }}>
+                  {metrics.comSeries.speed[Math.min(f, metrics.comSeries.speed.length - 1)]?.toFixed(2) ?? '—'} m/s
                 </span>
               </div>
               <Sparkline
-                data={metrics.com
-                  .filter(
-                    (_, i) =>
-                      i % Math.max(1, Math.floor(metrics.com.length / 100)) ===
-                      0,
-                  )
-                  .map((p) => p.y)}
+                data={metrics.comSeries.speed.filter(
+                  (_, i) => i % Math.max(1, Math.floor(metrics.comSeries.speed.length / 100)) === 0,
+                )}
                 color="#a78bfa"
                 height={28}
                 playheadPct={
-                  metrics.com.length > 1
-                    ? (f / (metrics.com.length - 1)) * 100
+                  metrics.comSeries.speed.length > 1
+                    ? (Math.min(f, metrics.comSeries.speed.length - 1) / (metrics.comSeries.speed.length - 1)) * 100
                     : 0
                 }
               />
@@ -486,6 +704,20 @@ export const Telemetry = () => {
             contacts={metrics.groundContacts}
             fps={fps}
             calibrated={cal}
+            onDelete={deleteContact}
+            onEdit={editContact}
+          />
+        )}
+
+        {/* ── CoM ─────────────────────────────────────────────────────── */}
+        {tab === 'com' && (
+          <CoMTab
+            comSeries={metrics.comSeries}
+            frame={f}
+            fps={fps}
+            comEvents={showCoMEvents ? comEvents : []}
+            sprintStart={sprintStart}
+            sprintFinish={sprintFinish}
           />
         )}
 

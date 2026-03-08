@@ -39,6 +39,17 @@ export interface JointTimeSeries {
   accel: number[]; // deg/s², smoothed
 }
 
+export interface CoMSeries {
+  /** Horizontal displacement from frame-0 position (metres) */
+  x: number[];
+  /** Horizontal speed |vx| in m/s */
+  speed: number[];
+  /** Horizontal acceleration d(speed)/dt in m/s² */
+  accel: number[];
+  /** Cumulative horizontal distance travelled (metres) */
+  distance: number[];
+}
+
 export interface SprintMetrics {
   // ── Temporal ────────────────────────────────────────────────────────────────
   groundContacts: GroundContactEvent[];
@@ -66,6 +77,7 @@ export interface SprintMetrics {
   rightShin: JointTimeSeries;
   // ── CoM trajectory ─────────────────────────────────────────────────────────
   com: { frame: number; x: number; y: number }[];
+  comSeries: CoMSeries;
 }
 
 // ── Internal helpers ───────────────────────────────────────────────────────────
@@ -170,10 +182,22 @@ function detectContacts(
   if (!validYs.length) return [];
   const maxY = Math.max(...validYs);
   const minY = Math.min(...validYs);
-  const thr = (maxY - minY) * 0.12;
+  const thr = (maxY - minY) * 0.10; // 10% threshold (was 12%)
   const floor = maxY - thr;
 
-  const onGnd = footYs.map((y) => y != null && y >= floor);
+  const raw = footYs.map((y) => y != null && y >= floor);
+
+  // Gap-fill: merge contact windows separated by < 4 frames to avoid split detections
+  const onGnd = raw.slice();
+  let lastTrue = -1;
+  for (let i = 0; i < onGnd.length; i++) {
+    if (onGnd[i]) {
+      if (lastTrue >= 0 && i - lastTrue < 4) {
+        for (let k = lastTrue + 1; k < i; k++) onGnd[k] = true;
+      }
+      lastTrue = i;
+    }
+  }
 
   const events: GroundContactEvent[] = [];
   let start: number | null = null;
@@ -213,6 +237,7 @@ function detectContacts(
           : 0;
 
         events.push({
+          id: `${foot}-${start}`, // stable id: foot + first-contact-frame
           foot,
           contactFrame: start,
           liftFrame: i,
@@ -368,6 +393,35 @@ export function useSprintMetrics(
       rightShin: buildSeries(sA(rKne, rAnk), fps),
 
       com: com.map((p, i) => ({ frame: i, x: p?.x ?? 0, y: p?.y ?? 0 })),
+
+      comSeries: (() => {
+        const rawX = com.map((p) => p?.x ?? null);
+        // Forward-fill then backward-fill nulls
+        const fillNulls = (arr: (number | null)[]) => {
+          const f = arr.slice() as number[];
+          for (let i = 1; i < f.length; i++) if (f[i] == null) f[i] = f[i - 1] ?? 0;
+          for (let i = f.length - 2; i >= 0; i--) if (f[i] == null) f[i] = f[i + 1] ?? 0;
+          return f;
+        };
+        // position metres = (px_x / frameWidth) * aspectRatio / pixelsPerMeter
+        const mScale = frameWidth > 0 && calibration
+          ? calibration.aspectRatio / (frameWidth * calibration.pixelsPerMeter)
+          : 1;
+        const sx_px = smooth(fillNulls(rawX), 5);
+        const sx_m = sx_px.map((v) => v * mScale);
+        // Relative displacement from frame-0 position
+        const x0 = sx_m[0] ?? 0;
+        const x = sx_m.map((v) => v - x0);
+        // Velocity and speed in m/s
+        const vx = derivative(sx_m, fps);
+        const speed = vx.map(Math.abs);
+        const accel = derivative(speed, fps).map(Math.abs);
+        // Cumulative horizontal distance travelled
+        const distance: number[] = [0];
+        for (let i = 1; i < speed.length; i++)
+          distance.push(distance[i - 1] + speed[i] / fps);
+        return { x, speed, accel, distance };
+      })(),
     };
   }, [getKeypoints, totalFrames, fps, calibration, frameWidth, frameHeight]);
 }

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import type { Keypoint } from './usePoseLandmarker';
 import type { GroundContactEvent } from '../../useSprintMetrics';
+import type { CoMEvent } from '../../VideoContext';
 import { LANDMARKS, CONNECTIONS, REGION_COLORS } from './poseConfig';
 
 export type ViewMode = 'video' | 'skeleton' | 'body';
@@ -10,7 +11,13 @@ export interface ManualContact {
   id: string;
   foot: 'left' | 'right';
   contactFrame: number;
+  liftFrame?: number; // optional override; computed from fps when absent
   contactSite: { x: number; y: number }; // inference-frame pixel coords
+}
+
+export interface SprintMarker {
+  frame: number;
+  site: { x: number; y: number }; // inference-frame pixel coords
 }
 
 interface Props {
@@ -27,11 +34,20 @@ interface Props {
   drawRef?: React.MutableRefObject<((kp: Keypoint[]) => void) | null>;
   groundContacts?: GroundContactEvent[];
   // Annotation mode
-  annotateMode?: 'off' | 'left' | 'right';
+  annotateMode?: 'off' | 'left' | 'right' | 'start' | 'finish';
   currentFrame?: number;
   onAddContact?: (c: ManualContact) => void;
   onMoveContact?: (id: string, site: { x: number; y: number }) => void;
   onDeleteContact?: (id: string) => void;
+  // Sprint start/finish markers
+  sprintStart?: SprintMarker | null;
+  sprintFinish?: SprintMarker | null;
+  onSetMarker?: (type: 'start' | 'finish', frame: number, site: { x: number; y: number }) => void;
+  onClearMarker?: (type: 'start' | 'finish') => void;
+  // Centre of mass
+  showCoM?: boolean;
+  comEvents?: CoMEvent[];
+  showCoMEvents?: boolean;
 }
 
 const SCORE_THRESHOLD = 0.43;
@@ -62,6 +78,13 @@ export const PoseOverlay = ({
   onAddContact,
   onMoveContact,
   onDeleteContact,
+  sprintStart = null,
+  sprintFinish = null,
+  onSetMarker,
+  onClearMarker,
+  showCoM = false,
+  comEvents = [],
+  showCoMEvents = true,
 }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mousePosRef = useRef<{ x: number; y: number } | null>(null);
@@ -81,6 +104,13 @@ export const PoseOverlay = ({
   const onAddContactRef = useRef(onAddContact);
   const onMoveContactRef = useRef(onMoveContact);
   const onDeleteContactRef = useRef(onDeleteContact);
+  const sprintStartRef = useRef(sprintStart);
+  const sprintFinishRef = useRef(sprintFinish);
+  const onSetMarkerRef = useRef(onSetMarker);
+  const onClearMarkerRef = useRef(onClearMarker);
+  const showCoMRef = useRef(showCoM);
+  const comEventsRef = useRef(comEvents);
+  const showCoMEventsRef = useRef(showCoMEvents);
 
   // Cached letterbox transform — populated each draw, used by event handlers
   const lbRef = useRef({ left: 0, top: 0, width: 0, height: 0 });
@@ -105,6 +135,13 @@ export const PoseOverlay = ({
   useEffect(() => { onAddContactRef.current = onAddContact; }, [onAddContact]);
   useEffect(() => { onMoveContactRef.current = onMoveContact; }, [onMoveContact]);
   useEffect(() => { onDeleteContactRef.current = onDeleteContact; }, [onDeleteContact]);
+  useEffect(() => { sprintStartRef.current = sprintStart; }, [sprintStart]);
+  useEffect(() => { sprintFinishRef.current = sprintFinish; }, [sprintFinish]);
+  useEffect(() => { onSetMarkerRef.current = onSetMarker; }, [onSetMarker]);
+  useEffect(() => { onClearMarkerRef.current = onClearMarker; }, [onClearMarker]);
+  useEffect(() => { showCoMRef.current = showCoM; }, [showCoM]);
+  useEffect(() => { comEventsRef.current = comEvents; }, [comEvents]);
+  useEffect(() => { showCoMEventsRef.current = showCoMEvents; }, [showCoMEvents]);
 
   // ── Core imperative draw — accepts keypoints directly ────────────────────
   const drawKp = useCallback((kp: Keypoint[]) => {
@@ -333,11 +370,11 @@ export const PoseOverlay = ({
       }
 
       // ── Contact nodes ─────────────────────────────────────────────────────
-      // Hover detection: × delete button (manual only, annotate mode)
+      // Hover detection: × delete button (all contacts in annotate mode)
       let hoveredDeleteId: string | null = null;
       if (annotate !== 'off') {
         for (const c of contacts) {
-          if (!c.isManual || !c.id) continue;
+          if (!c.id) continue;
           const s = effSite(c);
           const cnx = lb.left + s.x * sx;
           const cny = lb.top + s.y * sy;
@@ -388,8 +425,8 @@ export const PoseOverlay = ({
         ctx.textBaseline = 'middle';
         ctx.fillText(String(idx + 1), cnx, cny);
 
-        // × delete button (manual contacts in annotate mode)
-        if (c.isManual && c.id && annotate !== 'off') {
+        // × delete button (all contacts in annotate mode)
+        if (c.id && annotate !== 'off') {
           const bx = cnx + r + 2;
           const by = cny - r - 2;
           const isDelHov = hoveredDeleteId === c.id;
@@ -455,6 +492,146 @@ export const PoseOverlay = ({
       }
     }
 
+    // ── Sprint start / finish markers ──────────────────────────────────────
+    const markerDefs: Array<{ marker: typeof sprintStartRef.current; type: 'start' | 'finish'; color: string; label: string }> = [
+      { marker: sprintStartRef.current, type: 'start', color: '#22d3ee', label: 'START' },
+      { marker: sprintFinishRef.current, type: 'finish', color: '#f97316', label: 'FINISH' },
+    ];
+    for (const { marker, color, label } of markerDefs) {
+      if (!marker || !fw || !fh) continue;
+      const mx2 = lb.left + marker.site.x * sx;
+      // Vertical dashed line spanning canvas height
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(mx2, 0);
+      ctx.lineTo(mx2, ch);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Label badge at top
+      ctx.font = 'bold 9px "DM Mono", monospace';
+      const tw2 = ctx.measureText(label).width;
+      const bw2 = tw2 + 10;
+      const bh2 = 14;
+      const bx2 = mx2 - bw2 / 2;
+      const by2 = 6;
+      ctx.fillStyle = color;
+      ctx.fillRect(bx2, by2, bw2, bh2);
+      ctx.fillStyle = '#000';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, mx2, by2 + bh2 / 2);
+      // Frame label
+      ctx.font = '8px "DM Mono", monospace';
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(`f${marker.frame}`, mx2, by2 + bh2 + 2);
+      // × delete button (top-right of label badge, always in annotate mode OR when marker exists)
+      const delR = 5;
+      const delBx = bx2 + bw2 + delR + 2;
+      const delBy = by2 + bh2 / 2;
+      const annotate2 = annotateModeRef.current;
+      const isDelHov2 = annotate2 !== 'off' && Math.hypot(delBx - (mousePosRef.current?.x ?? -9999), delBy - (mousePosRef.current?.y ?? -9999)) < 8;
+      ctx.beginPath();
+      ctx.arc(delBx, delBy, delR, 0, Math.PI * 2);
+      ctx.fillStyle = isDelHov2 ? '#ef4444' : 'rgba(239,68,68,0.75)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.font = 'bold 7px sans-serif';
+      ctx.fillStyle = 'white';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('×', delBx, delBy);
+      ctx.restore();
+    }
+
+    // ── Centre of mass marker (live, current frame) ─────────────────────────
+    if (showCoMRef.current && fw && fh) {
+      const lHip = kp[11];
+      const rHip = kp[12];
+      const SCORE_MIN = 0.35;
+      if (lHip && rHip && lHip.score >= SCORE_MIN && rHip.score >= SCORE_MIN) {
+        const cx = lb.left + ((lHip.x + rHip.x) / 2) * sx;
+        const cy = lb.top + ((lHip.y + rHip.y) / 2) * sy;
+        const r = 6;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(Math.PI / 4);
+        ctx.beginPath();
+        ctx.rect(-r, -r, r * 2, r * 2);
+        ctx.fillStyle = '#a78bfa';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.restore();
+        ctx.font = 'bold 7px "DM Mono", monospace';
+        ctx.fillStyle = '#a78bfa';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('CoM', cx, cy + r + 3);
+      }
+    }
+
+    // ── CoM event markers ───────────────────────────────────────────────────
+    if (showCoMEventsRef.current && fw && fh) {
+      const events = comEventsRef.current;
+      events.forEach((evt, i) => {
+        const ex = lb.left + evt.comSite.x * sx;
+        const ey = lb.top + evt.comSite.y * sy;
+        const color = '#a78bfa';
+        // Vertical dashed line
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.globalAlpha = 0.7;
+        ctx.beginPath();
+        ctx.moveTo(ex, 0);
+        ctx.lineTo(ex, ch);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        // Diamond at CoM site
+        const dr = 5;
+        ctx.translate(ex, ey);
+        ctx.rotate(Math.PI / 4);
+        ctx.beginPath();
+        ctx.rect(-dr, -dr, dr * 2, dr * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.restore();
+        // Label badge
+        const label = `E${i + 1}`;
+        ctx.font = 'bold 8px "DM Mono", monospace';
+        const lw = ctx.measureText(label).width;
+        const bw = lw + 6;
+        const bh = 12;
+        const bx = ex - bw / 2;
+        const by = 22;
+        ctx.fillStyle = color;
+        ctx.fillRect(bx, by, bw, bh);
+        ctx.fillStyle = '#000';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, ex, by + bh / 2);
+        // Frame number
+        ctx.font = '7px "DM Mono", monospace';
+        ctx.fillStyle = color;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(`f${evt.frame}`, ex, by + bh + 2);
+      });
+    }
+
     if (showLabelsRef.current && mousePosRef.current) {
       const { x: mx, y: my } = mousePosRef.current;
       let closest: {
@@ -508,7 +685,7 @@ export const PoseOverlay = ({
   // Redraw when any display-affecting prop changes
   useEffect(() => {
     drawKp(currentKpRef.current);
-  }, [visibilityMap, showLabels, viewMode, groundContacts, annotateMode, drawKp]);
+  }, [visibilityMap, showLabels, viewMode, groundContacts, annotateMode, sprintStart, sprintFinish, showCoM, comEvents, showCoMEvents, drawKp]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -549,9 +726,36 @@ export const PoseOverlay = ({
     const sy = syRef.current;
     const contacts = groundContactsRef.current;
 
-    // Check × delete buttons first
+    // Check × delete buttons for sprint markers
+    const markerEntries: Array<{ marker: SprintMarker | null; type: 'start' | 'finish'; label: string }> = [
+      { marker: sprintStartRef.current, type: 'start', label: 'START' },
+      { marker: sprintFinishRef.current, type: 'finish', label: 'FINISH' },
+    ];
+    const canvas2 = canvasRef.current;
+    if (canvas2) {
+      for (const { marker, type, label } of markerEntries) {
+        if (!marker) continue;
+        const mx2 = lb.left + marker.site.x * sx;
+        const ctx2 = canvas2.getContext('2d')!;
+        ctx2.font = 'bold 9px "DM Mono", monospace';
+        const tw2 = ctx2.measureText(label).width;
+        const bw2 = tw2 + 10;
+        const bh2 = 14;
+        const bx2 = mx2 - bw2 / 2;
+        const by2 = 6;
+        const delR = 5;
+        const delBx = bx2 + bw2 + delR + 2;
+        const delBy = by2 + bh2 / 2;
+        if (Math.hypot(delBx - mx, delBy - my) < 8) {
+          onClearMarkerRef.current?.(type);
+          return;
+        }
+      }
+    }
+
+    // Check × delete buttons for contacts
     for (const c of contacts) {
-      if (!c.isManual || !c.id) continue;
+      if (!c.id) continue;
       const s = tempDragRef.current?.id === c.id ? tempDragRef.current!.site : c.contactSite;
       const cnx = lb.left + s.x * sx;
       const cny = lb.top + s.y * sy;
@@ -603,17 +807,22 @@ export const PoseOverlay = ({
       const pa = pendingAddRef.current;
       pendingAddRef.current = null;
       if (Math.hypot(mx - pa.x, my - pa.y) < 8) {
-        // Click (not drag) — add contact at this position
+        // Click (not drag) — add contact or set marker at this position
         const lb = lbRef.current;
         const ix = (mx - lb.left) / sxRef.current;
         const iy = (my - lb.top) / syRef.current;
         if (ix >= 0 && iy >= 0) {
-          onAddContactRef.current?.({
-            id: crypto.randomUUID(),
-            foot: annotateModeRef.current as 'left' | 'right',
-            contactFrame: currentFrameRef.current,
-            contactSite: { x: ix, y: iy },
-          });
+          const mode = annotateModeRef.current;
+          if (mode === 'start' || mode === 'finish') {
+            onSetMarkerRef.current?.(mode, currentFrameRef.current, { x: ix, y: iy });
+          } else if (mode === 'left' || mode === 'right') {
+            onAddContactRef.current?.({
+              id: crypto.randomUUID(),
+              foot: mode,
+              contactFrame: currentFrameRef.current,
+              contactSite: { x: ix, y: iy },
+            });
+          }
         }
       }
     }
@@ -634,7 +843,7 @@ export const PoseOverlay = ({
     <canvas
       ref={canvasRef}
       className="absolute inset-0 w-full h-full pointer-events-auto"
-      style={{ cursor: annotateMode !== 'off' ? 'crosshair' : 'default' }}
+      style={{ cursor: annotateMode !== 'off' ? (annotateMode === 'start' || annotateMode === 'finish' ? 'cell' : 'crosshair') : 'default' }}
       onMouseMove={handleMouseMove}
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}

@@ -127,6 +127,49 @@ export const CalibrationOverlay = ({
       ctx.globalAlpha = 1;
     }
 
+    // ── Alignment guides (H/V) from pointA when picking second point ─────
+    if (pointA && step === 'pick_end' && mousePos) {
+      const pa = normToCanvas(pointA, w, h);
+      const pm = normToCanvas(mousePos, w, h);
+      const dx = pm.x - pa.x;
+      const dy = pm.y - pa.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 8) {
+        const angleDeg = (Math.atan2(Math.abs(dy), Math.abs(dx)) * 180) / Math.PI;
+        const isNearH = angleDeg < 8;
+        const isNearV = angleDeg > 82;
+        ctx.save();
+        ctx.setLineDash([6, 4]);
+        // Horizontal guide
+        ctx.strokeStyle = isNearH ? '#38bdf8' : 'rgba(255,255,255,0.2)';
+        ctx.lineWidth = isNearH ? 1 : 0.6;
+        ctx.globalAlpha = isNearH ? 0.9 : 0.4;
+        ctx.beginPath();
+        ctx.moveTo(0, pa.y);
+        ctx.lineTo(w, pa.y);
+        ctx.stroke();
+        // Vertical guide
+        ctx.strokeStyle = isNearV ? '#38bdf8' : 'rgba(255,255,255,0.2)';
+        ctx.lineWidth = isNearV ? 1 : 0.6;
+        ctx.globalAlpha = isNearV ? 0.9 : 0.4;
+        ctx.beginPath();
+        ctx.moveTo(pa.x, 0);
+        ctx.lineTo(pa.x, h);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // Snap label
+        if (isNearH || isNearV) {
+          ctx.globalAlpha = 1;
+          ctx.font = 'bold 9px "DM Mono", monospace';
+          ctx.fillStyle = '#38bdf8';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(isNearH ? '— H aligned' : '| V aligned', pm.x + 14, pm.y - 6);
+        }
+        ctx.restore();
+      }
+    }
+
     // Draw live line from pointA to mouse
     if (pointA && !pointB && mousePos) drawLine(pointA, mousePos);
     if (pointA && pointB) drawLine(pointA, pointB);
