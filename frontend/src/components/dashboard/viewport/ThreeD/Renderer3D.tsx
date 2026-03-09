@@ -52,10 +52,11 @@ function normalize(raw: Keypoint3D[]): Vec3[] | null {
     rp[2] = zMid - MIN_HALF_SEP;
   }
 
-  // Heels and toes follow their ankle's z so the foot segment stays coplanar.
+  // Heel and toe follow their ankle's z so each foot stays coplanar.
+  // Left:  17=BigToe, 19=Heel    Right: 20=BigToe, 22=Heel
   const lAnkle = pts[15], rAnkle = pts[16];
-  if (lAnkle) { if (pts[17]) pts[17][2] = lAnkle[2]; if (pts[19]) pts[19][2] = lAnkle[2]; }
-  if (rAnkle) { if (pts[18]) pts[18][2] = rAnkle[2]; if (pts[20]) pts[20][2] = rAnkle[2]; }
+  if (lAnkle) { if (pts[19]) pts[19][2] = lAnkle[2]; if (pts[17]) pts[17][2] = lAnkle[2]; }
+  if (rAnkle) { if (pts[22]) pts[22][2] = rAnkle[2]; if (pts[20]) pts[20][2] = rAnkle[2]; }
 
   return pts;
 }
@@ -171,9 +172,13 @@ function ProceduralBody({ getKeypoints3D, currentFrame }: Props) {
     jRKn:    null as THREE.Mesh | null,
     jLAn:    null as THREE.Mesh | null, // L ankle
     jRAn:    null as THREE.Mesh | null,
-    // Feet
-    lFoot:   null as THREE.Mesh | null,
-    rFoot:   null as THREE.Mesh | null,
+    // Feet: two segments each — ankle→heel, heel→big toe
+    lFoot1:  null as THREE.Mesh | null,  // L ankle → L heel
+    lFoot2:  null as THREE.Mesh | null,  // L heel  → L big toe
+    rFoot1:  null as THREE.Mesh | null,
+    rFoot2:  null as THREE.Mesh | null,
+    jLHeel:  null as THREE.Mesh | null,
+    jRHeel:  null as THREE.Mesh | null,
     jLToe:   null as THREE.Mesh | null,
     jRToe:   null as THREE.Mesh | null,
   });
@@ -218,9 +223,13 @@ function ProceduralBody({ getKeypoints3D, currentFrame }: Props) {
     m.jRKn   = makeSph(sph, COL_JOINT);  group.add(m.jRKn);
     m.jLAn   = makeSph(sph, COL_JOINT);  group.add(m.jLAn);
     m.jRAn   = makeSph(sph, COL_JOINT);  group.add(m.jRAn);
-    // Feet
-    m.lFoot  = makeCyl(cyl, COL_DISTAL); group.add(m.lFoot);
-    m.rFoot  = makeCyl(cyl, COL_DISTAL); group.add(m.rFoot);
+    // Feet: ankle→heel + heel→big toe
+    m.lFoot1 = makeCyl(cyl, COL_DISTAL); group.add(m.lFoot1);
+    m.lFoot2 = makeCyl(cyl, COL_DISTAL); group.add(m.lFoot2);
+    m.rFoot1 = makeCyl(cyl, COL_DISTAL); group.add(m.rFoot1);
+    m.rFoot2 = makeCyl(cyl, COL_DISTAL); group.add(m.rFoot2);
+    m.jLHeel = makeSph(sph, COL_JOINT);  group.add(m.jLHeel);
+    m.jRHeel = makeSph(sph, COL_JOINT);  group.add(m.jRHeel);
     m.jLToe  = makeSph(sph, COL_JOINT);  group.add(m.jLToe);
     m.jRToe  = makeSph(sph, COL_JOINT);  group.add(m.jRToe);
 
@@ -248,7 +257,9 @@ function ProceduralBody({ getKeypoints3D, currentFrame }: Props) {
     const lHip = pts[11], rHip = pts[12];
     const lKn  = pts[13], rKn  = pts[14];
     const lAn  = pts[15], rAn  = pts[16];
-    const lToe = pts[19], rToe = pts[20];
+    // Feet: 17=L BigToe, 19=L Heel, 20=R BigToe, 22=R Heel
+    const lHeel = pts[19], lToe = pts[17];
+    const rHeel = pts[22], rToe = pts[20];
     const nose = pts[0];
 
     const shMid  = lSh  && rSh  ? midpoint(lSh,  rSh)  : null;
@@ -317,13 +328,19 @@ function ProceduralBody({ getKeypoints3D, currentFrame }: Props) {
     if (rKn  && m.jRKn)  placeSphere(m.jRKn,  rKn,  0.058);
     if (lAn  && m.jLAn)  placeSphere(m.jLAn,  lAn,  0.044); // = shin r
     if (rAn  && m.jRAn)  placeSphere(m.jRAn,  rAn,  0.044);
-    // Feet
-    if (m.lFoot && lAn && lToe) orientCylinder(m.lFoot, lAn, lToe, 0.028);
-    else if (m.lFoot) m.lFoot.visible = false;
-    if (m.rFoot && rAn && rToe) orientCylinder(m.rFoot, rAn, rToe, 0.028);
-    else if (m.rFoot) m.rFoot.visible = false;
-    if (lToe && m.jLToe) placeSphere(m.jLToe, lToe, 0.022);
-    if (rToe && m.jRToe) placeSphere(m.jRToe, rToe, 0.022);
+    // Feet: ankle→heel, heel→big toe
+    if (m.lFoot1 && lAn   && lHeel) orientCylinder(m.lFoot1, lAn,   lHeel, 0.030);
+    else if (m.lFoot1) m.lFoot1.visible = false;
+    if (m.lFoot2 && lHeel && lToe)  orientCylinder(m.lFoot2, lHeel, lToe,  0.024);
+    else if (m.lFoot2) m.lFoot2.visible = false;
+    if (m.rFoot1 && rAn   && rHeel) orientCylinder(m.rFoot1, rAn,   rHeel, 0.030);
+    else if (m.rFoot1) m.rFoot1.visible = false;
+    if (m.rFoot2 && rHeel && rToe)  orientCylinder(m.rFoot2, rHeel, rToe,  0.024);
+    else if (m.rFoot2) m.rFoot2.visible = false;
+    if (lHeel && m.jLHeel) placeSphere(m.jLHeel, lHeel, 0.030);
+    if (rHeel && m.jRHeel) placeSphere(m.jRHeel, rHeel, 0.030);
+    if (lToe  && m.jLToe)  placeSphere(m.jLToe,  lToe,  0.022);
+    if (rToe  && m.jRToe)  placeSphere(m.jRToe,  rToe,  0.022);
   });
 
   return <group ref={groupRef} />;
