@@ -26,6 +26,7 @@ import { useStatus } from './StatusBar/StatusContext';
 import { useVideoContext } from '../VideoContext';
 import { usePose } from '../PoseContext';
 import { useSprintMetrics } from '../useSprintMetrics';
+import { Renderer3D } from './ThreeD/Renderer3D';
 
 interface VideoMeta {
   src: string;
@@ -681,8 +682,6 @@ export const Viewport = () => {
     });
   }, []);
 
-  // getKeypoints3D & mode3D are wired — used when 3D view is built
-  void getKeypoints3D;
   const zoomLabel =
     transform.scale > 1 ? `${transform.scale.toFixed(1)}×` : null;
 
@@ -745,7 +744,7 @@ export const Viewport = () => {
               {(['video', 'skeleton', 'body'] as const).map((mode) => (
                 <button
                   key={mode}
-                  onClick={() => setViewMode(mode)}
+                  onClick={() => { setViewMode(mode); setMode3D(false); }}
                   className={`flex items-center gap-1 px-1.5 h-4.5 text-[9px] uppercase tracking-widest transition-colors cursor-pointer border-r border-zinc-300 dark:border-zinc-700 last:border-r-0
                     ${viewMode === mode
                       ? 'bg-zinc-800 dark:bg-zinc-200 text-zinc-100 dark:text-zinc-900'
@@ -809,11 +808,13 @@ export const Viewport = () => {
         className="flex-1 border border-zinc-400 dark:border-zinc-600 overflow-hidden relative bg-black select-none"
         style={{
           cursor:
-            calibrating || measuringDistance || measuringAngle || drawingCrop || annotateMode !== 'off'
-              ? 'crosshair'
-              : transform.scale > 1
-                ? 'grab'
-                : 'default',
+            mode3D
+              ? 'default'
+              : calibrating || measuringDistance || measuringAngle || drawingCrop || annotateMode !== 'off'
+                ? 'crosshair'
+                : transform.scale > 1
+                  ? 'grab'
+                  : 'default',
           touchAction: 'none',
         }}
         onPointerDown={onPointerDown}
@@ -898,6 +899,13 @@ export const Viewport = () => {
                 />
               )}
             </div>
+
+            {mode3D && poseStatus === 'ready' && (
+              <Renderer3D
+                getKeypoints3D={getKeypoints3D}
+                currentFrame={currentFrame}
+              />
+            )}
 
             {videoProbing && exportStatus === 'idle' && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
