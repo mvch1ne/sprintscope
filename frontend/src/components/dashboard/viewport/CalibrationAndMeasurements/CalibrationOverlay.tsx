@@ -18,6 +18,7 @@ interface Props {
   existingCalibration: CalibrationData | null;
   onCalibrationComplete: (data: CalibrationData) => void;
   onCancel: () => void;
+  flipH?: boolean;
 }
 
 type Step = 'pick_start' | 'pick_end' | 'enter_distance';
@@ -30,6 +31,7 @@ export const CalibrationOverlay = ({
   existingCalibration,
   onCalibrationComplete,
   onCancel,
+  flipH = false,
 }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -57,12 +59,13 @@ export const CalibrationOverlay = ({
       const cy = h / 2;
       const nx = ((sx - cx - transform.x) / transform.scale + cx) / w;
       const ny = ((sy - cy - transform.y) / transform.scale + cy) / h;
+      const fx = flipH ? 1 - nx : nx;
       return {
-        x: Math.max(0, Math.min(1, nx)),
+        x: Math.max(0, Math.min(1, fx)),
         y: Math.max(0, Math.min(1, ny)),
       };
     },
-    [transform],
+    [transform, flipH],
   );
 
   const normToCanvas = useCallback(
@@ -300,6 +303,14 @@ export const CalibrationOverlay = ({
       {/* HUD */}
       {active && (
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
+          {step === 'pick_start' && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/80 border border-zinc-700 rounded-sm backdrop-blur-sm max-w-xs text-center">
+              <span className="text-[9px] tracking-wide text-zinc-400 leading-relaxed">
+                Draw a <span className="text-sky-400">horizontal</span> line at the athlete's{' '}
+                <span className="text-sky-400">hip / CoM height</span> across a known distance for best accuracy.
+              </span>
+            </div>
+          )}
           <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/80 border border-zinc-600 rounded-sm backdrop-blur-sm">
             <div className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
             <span className="text-[9px] uppercase tracking-widest text-zinc-300">

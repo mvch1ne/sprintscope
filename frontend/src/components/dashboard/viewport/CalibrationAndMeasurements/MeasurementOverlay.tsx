@@ -22,6 +22,7 @@ interface Props {
   calibration: CalibrationData;
   measurements: Measurement[];
   onMeasurementAdded: (m: Measurement) => void;
+  flipH?: boolean;
 }
 
 export const MeasurementOverlay = ({
@@ -31,6 +32,7 @@ export const MeasurementOverlay = ({
   calibration,
   measurements,
   onMeasurementAdded,
+  flipH = false,
 }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // Distance mode: one point placed, waiting for second
@@ -51,12 +53,13 @@ export const MeasurementOverlay = ({
       const cy = h / 2;
       const nx = ((sx - cx - transform.x) / transform.scale + cx) / w;
       const ny = ((sy - cy - transform.y) / transform.scale + cy) / h;
+      const fx = flipH ? 1 - nx : nx;
       return {
-        x: Math.max(0, Math.min(1, nx)),
+        x: Math.max(0, Math.min(1, fx)),
         y: Math.max(0, Math.min(1, ny)),
       };
     },
-    [transform],
+    [transform, flipH],
   );
 
   const normToCanvas = useCallback(

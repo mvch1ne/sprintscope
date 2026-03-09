@@ -70,6 +70,7 @@ interface ControlPanelProps {
   poseEnabled: boolean;
   onTogglePose: () => void;
   poseStatus: LandmarkerStatus;
+  backendReachable?: boolean;
   showPosePanel: boolean;
   onTogglePosePanel: () => void;
   showTrimCropPanel: boolean;
@@ -166,6 +167,7 @@ export function ControlPanel({
   poseEnabled,
   onTogglePose,
   poseStatus,
+  backendReachable = false,
   showPosePanel,
   onTogglePosePanel,
   showTrimCropPanel,
@@ -501,25 +503,34 @@ export function ControlPanel({
 
             <div className="h-6 w-px bg-zinc-300 dark:bg-zinc-600 mx-1" />
 
-            <IconBtn
-              onClick={onTogglePose}
-              tooltip={
-                poseStatus === 'loading'
-                  ? 'Loading pose model…'
-                  : poseStatus === 'error'
-                    ? 'Pose model failed to load'
-                    : poseEnabled
-                      ? 'Disable pose detection'
-                      : 'Enable pose detection'
-              }
-              active={poseEnabled}
-            >
-              {poseStatus === 'loading' ? (
-                <span className="text-[10px] animate-pulse">…</span>
-              ) : (
-                <ScanLine size={14} />
-              )}
-            </IconBtn>
+            <div className="relative">
+              <IconBtn
+                onClick={onTogglePose}
+                tooltip={
+                  poseStatus === 'loading'
+                    ? 'Loading pose model…'
+                    : poseStatus === 'error'
+                      ? 'Pose model failed to load'
+                      : poseEnabled
+                        ? 'Disable pose detection'
+                        : 'Enable pose detection'
+                }
+                active={poseEnabled}
+              >
+                {poseStatus === 'loading' ? (
+                  <span className="text-[10px] animate-pulse">…</span>
+                ) : (
+                  <ScanLine size={14} />
+                )}
+              </IconBtn>
+              {/* Backend reachability dot */}
+              <span
+                className={`absolute top-0 right-0 w-1.5 h-1.5 rounded-full border border-zinc-900 ${
+                  backendReachable ? 'bg-emerald-400' : 'bg-zinc-600'
+                }`}
+                title={backendReachable ? 'Backend ready' : 'Backend unreachable'}
+              />
+            </div>
 
             <IconBtn
               onClick={onTogglePosePanel}

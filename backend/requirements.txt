@@ -5,3 +5,6 @@ rtmlib
 opencv-python-headless
 numpy
 pandas
+pytest
+pytest-asyncio
+httpx

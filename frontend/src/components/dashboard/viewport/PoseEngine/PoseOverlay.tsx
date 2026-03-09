@@ -48,6 +48,7 @@ interface Props {
   showCoM?: boolean;
   comEvents?: CoMEvent[];
   showCoMEvents?: boolean;
+  flipH?: boolean;
 }
 
 const SCORE_THRESHOLD = 0.43;
@@ -85,6 +86,7 @@ export const PoseOverlay = ({
   showCoM = false,
   comEvents = [],
   showCoMEvents = true,
+  flipH = false,
 }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mousePosRef = useRef<{ x: number; y: number } | null>(null);
@@ -111,6 +113,7 @@ export const PoseOverlay = ({
   const showCoMRef = useRef(showCoM);
   const comEventsRef = useRef(comEvents);
   const showCoMEventsRef = useRef(showCoMEvents);
+  const flipHRef = useRef(flipH);
 
   // Cached letterbox transform — populated each draw, used by event handlers
   const lbRef = useRef({ left: 0, top: 0, width: 0, height: 0 });
@@ -142,6 +145,7 @@ export const PoseOverlay = ({
   useEffect(() => { showCoMRef.current = showCoM; }, [showCoM]);
   useEffect(() => { comEventsRef.current = comEvents; }, [comEvents]);
   useEffect(() => { showCoMEventsRef.current = showCoMEvents; }, [showCoMEvents]);
+  useEffect(() => { flipHRef.current = flipH; }, [flipH]);
 
   // ── Core imperative draw — accepts keypoints directly ────────────────────
   const drawKp = useCallback((kp: Keypoint[]) => {
@@ -327,7 +331,7 @@ export const PoseOverlay = ({
 
       // Step brackets between consecutive contacts
       if (contacts.length > 1) {
-        const drawStridePair = (
+        const drawStepPair = (
           a: GroundContactEvent,
           b: GroundContactEvent,
           color: string,
@@ -349,22 +353,22 @@ export const PoseOverlay = ({
           ctx.moveTo(pa.x, groundY - 4); ctx.lineTo(pa.x, groundY + 4);
           ctx.moveTo(pb.x, groundY - 4); ctx.lineTo(pb.x, groundY + 4);
           ctx.stroke();
-          if (b.strideLength !== null) {
+          if (b.stepLength !== null) {
             const mid = (pa.x + pb.x) / 2;
             ctx.font = '9px "DM Mono", monospace';
             ctx.fillStyle = labelColor;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'bottom';
-            ctx.fillText(`${b.strideLength.toFixed(2)}m`, mid, groundY - 5);
+            ctx.fillText(`${b.stepLength.toFixed(2)}m`, mid, groundY - 5);
           }
           ctx.restore();
         };
         for (let i = 1; i < contacts.length; i++) {
           const a = contacts[i - 1];
           const b = contacts[i];
-          if (b.strideLength !== null) {
+          if (b.stepLength !== null) {
             const col = b.foot === 'left' ? '#10b981' : '#06b6d4';
-            drawStridePair(a, b, col + '99', col);
+            drawStepPair(a, b, col + '99', col);
           }
         }
       }
@@ -459,11 +463,11 @@ export const PoseOverlay = ({
           hc.flightTimeBefore > 0.01
             ? `Flight before: ${(hc.flightTimeBefore * 1000).toFixed(0)} ms`
             : 'Flight before: —',
-          hc.strideLength != null
-            ? `Step: ${hc.strideLength.toFixed(2)} m`
+          hc.stepLength != null
+            ? `Step: ${hc.stepLength.toFixed(2)} m`
             : 'Step: — (calibrate first)',
-          ...(hc.strideFrequency != null
-            ? [`Cadence: ${hc.strideFrequency.toFixed(2)} Hz`]
+          ...(hc.stepFrequency != null
+            ? [`Cadence: ${hc.stepFrequency.toFixed(2)} Hz`]
             : []),
           `Frame: ${hc.contactFrame}`,
         ];
@@ -809,7 +813,8 @@ export const PoseOverlay = ({
       if (Math.hypot(mx - pa.x, my - pa.y) < 8) {
         // Click (not drag) — add contact or set marker at this position
         const lb = lbRef.current;
-        const ix = (mx - lb.left) / sxRef.current;
+        const ixRaw = (mx - lb.left) / sxRef.current;
+        const ix = flipHRef.current ? frameWidthRef.current - ixRaw : ixRaw;
         const iy = (my - lb.top) / syRef.current;
         if (ix >= 0 && iy >= 0) {
           const mode = annotateModeRef.current;

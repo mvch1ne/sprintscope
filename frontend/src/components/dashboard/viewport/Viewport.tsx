@@ -81,6 +81,7 @@ export const Viewport = () => {
   const [showPosePanel, setShowPosePanel] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('video');
   const [skeletonHidden, setSkeletonHidden] = useState(false);
+  const [flipH, setFlipH] = useState(false);
 
   const [manualContacts, setManualContacts] = useState<ManualContact[]>([]);
   const [deletedContactIds, setDeletedContactIds] = useState<Set<string>>(
@@ -115,6 +116,7 @@ export const Viewport = () => {
     frameHeight: poseFrameH,
     totalFrames: poseTotalFrames,
     poseFps,
+    backendReachable,
     getKeypoints,
     analyseVideo,
     reset: resetPose,
@@ -152,6 +154,7 @@ export const Viewport = () => {
     calibration,
     poseFrameW,
     poseFrameH,
+    flipH,
   );
 
   // ── Merged contacts (auto-detected + manually placed) ─────────────────────
@@ -176,8 +179,8 @@ export const Viewport = () => {
         contactSite: m.contactSite,
         comAtContact: { x: 0, y: 0 },
         comDistance: 0,
-        strideLength: null,
-        strideFrequency: null,
+        stepLength: null,
+        stepFrequency: null,
       };
     });
 
@@ -199,17 +202,17 @@ export const Viewport = () => {
       const contactTime = (c.liftFrame - c.contactFrame) / fps;
       if (i === 0) {
         // Use the start-line marker as the reference "previous step" for the first contact,
-        // giving a stride length from the start line to the first footstrike.
+        // giving a step length from the start line to the first footstrike.
         const startLineX = sprintStart?.site.x ?? null;
-        const firstStrideLength =
+        const firstStepLength =
           startLineX !== null && hScale
             ? hScale(Math.abs(c.contactSite.x - startLineX))
             : null;
         return {
           ...c,
           contactTime,
-          strideLength: firstStrideLength,
-          strideFrequency: null,
+          stepLength: firstStepLength,
+          stepFrequency: null,
           flightTimeBefore: 0,
         };
       }
@@ -218,8 +221,8 @@ export const Viewport = () => {
       return {
         ...c,
         contactTime,
-        strideLength: hScale ? hScale(dx) : null,
-        strideFrequency:
+        stepLength: hScale ? hScale(dx) : null,
+        stepFrequency:
           c.contactFrame > prev.contactFrame
             ? 1 / ((c.contactFrame - prev.contactFrame) / fps)
             : null,
@@ -254,20 +257,20 @@ export const Viewport = () => {
       avgFlightTime: _avg(
         gc.map((c) => c.flightTimeBefore).filter((t) => t > 0),
       ),
-      avgStrideLength: (() => {
+      avgStepLength: (() => {
         const sl = gc.flatMap((c) =>
-          c.strideLength !== null ? [c.strideLength] : [],
+          c.stepLength !== null ? [c.stepLength] : [],
         );
         return sl.length ? _avg(sl) : null;
       })(),
-      avgStrideFreq: (() => {
+      avgStepFreq: (() => {
         const sf = gc.flatMap((c) =>
-          c.strideFrequency !== null ? [c.strideFrequency] : [],
+          c.stepFrequency !== null ? [c.stepFrequency] : [],
         );
         return sf.length ? _avg(sf) : null;
       })(),
       avgComDistance: (() => {
-        const cd = gc.filter((c) => c.comDistance > 0).map((c) => c.comDistance);
+        const cd = gc.filter((c) => c.comDistance !== 0).map((c) => c.comDistance);
         return cd.length ? _avg(cd) : null;
       })(),
     };
@@ -902,7 +905,7 @@ export const Viewport = () => {
             <div
               className="absolute inset-0"
               style={{
-                transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+                transform: `${flipH ? 'scaleX(-1) ' : ''}translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
                 transformOrigin: 'center center',
                 willChange: 'transform',
               }}
@@ -951,6 +954,7 @@ export const Viewport = () => {
                   drawRef={poseDrawRef}
                   groundContacts={mergedContacts}
                   annotateMode={annotateMode}
+                  flipH={flipH}
                   currentFrame={currentFrame}
                   onAddContact={(c) =>
                     setManualContacts((prev) => [...prev, c])
@@ -1017,6 +1021,7 @@ export const Viewport = () => {
                 setCalibrating(false);
               }}
               onCancel={() => setCalibrating(false)}
+              flipH={flipH}
             />
 
             {calibration && !calibrating && (
@@ -1043,6 +1048,7 @@ export const Viewport = () => {
                   setMeasurements((prev) => [...prev, m]);
                   setShowMeasurementPanel(true);
                 }}
+                flipH={flipH}
               />
             )}
 
@@ -1137,6 +1143,36 @@ export const Viewport = () => {
               </div>
             )}
 
+            {/* ── Coordinate system indicator ──────────────────────────── */}
+            <div className="absolute bottom-3 left-3 pointer-events-none select-none">
+              <div className="bg-zinc-950/70 border border-zinc-700 rounded-sm px-2 py-1.5 backdrop-blur-sm">
+                <svg width="56" height="52" viewBox="0 0 56 52">
+                  {/* Origin dot */}
+                  <circle cx="28" cy="28" r="2" fill="#71717a" />
+                  {/* +x arrow (right) */}
+                  <line x1="28" y1="28" x2="50" y2="28" stroke="#38bdf8" strokeWidth="1.2" />
+                  <polygon points="50,25 56,28 50,31" fill="#38bdf8" />
+                  {/* -x arrow (left) */}
+                  <line x1="28" y1="28" x2="6" y2="28" stroke="#f87171" strokeWidth="1.2" />
+                  <polygon points="6,25 0,28 6,31" fill="#f87171" />
+                  {/* +y arrow (down = screen down) */}
+                  <line x1="28" y1="28" x2="28" y2="48" stroke="#a3e635" strokeWidth="1.2" />
+                  <polygon points="25,48 28,54 31,48" fill="#a3e635" />
+                  {/* -y arrow (up) */}
+                  <line x1="28" y1="28" x2="28" y2="8" stroke="#a78bfa" strokeWidth="1.2" />
+                  <polygon points="25,8 28,2 31,8" fill="#a78bfa" />
+                  {/* Labels */}
+                  <text x="53" y="26" fontSize="6" fill="#38bdf8" textAnchor="middle" fontFamily="monospace">+x</text>
+                  <text x="3" y="26" fontSize="6" fill="#f87171" textAnchor="middle" fontFamily="monospace">−x</text>
+                  <text x="38" y="51" fontSize="6" fill="#a3e635" textAnchor="middle" fontFamily="monospace">+y</text>
+                  <text x="38" y="8" fontSize="6" fill="#a78bfa" textAnchor="middle" fontFamily="monospace">−y</text>
+                </svg>
+                <div className="text-[7px] text-zinc-500 tracking-wide text-center mt-0.5 leading-tight">
+                  screen coords
+                </div>
+              </div>
+            </div>
+
             {showTrimCropPanel && videoMeta && (
               <div
                 className="absolute top-0 bottom-0 w-56 border-l border-zinc-400 dark:border-zinc-600 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm"
@@ -1199,6 +1235,8 @@ export const Viewport = () => {
                     setShowCropOverlay(false);
                     setDrawingCrop(false);
                   }}
+                  flipH={flipH}
+                  onToggleFlipH={() => setFlipH((v) => !v)}
                   onExport={(mode) =>
                     startExport(mode, (url, w, h) => {
                       setCropRect(null);
@@ -1257,7 +1295,10 @@ export const Viewport = () => {
                   exportProgress={exportProgress}
                   lastExportUrl={lastExportUrl}
                   lastExportTitle={lastExportTitle}
-                  onClose={() => setShowTrimCropPanel(false)}
+                  onClose={() => {
+                    setShowTrimCropPanel(false);
+                    setShowCropOverlay(false);
+                  }}
                 />
               </div>
             )}
@@ -1407,6 +1448,7 @@ export const Viewport = () => {
           poseEnabled={poseEnabled}
           onTogglePose={() => setPoseEnabled((v) => !v)}
           poseStatus={poseStatus}
+          backendReachable={backendReachable}
           showPosePanel={showPosePanel}
           onTogglePosePanel={() => setShowPosePanel((v) => !v)}
           showTrimCropPanel={showTrimCropPanel}

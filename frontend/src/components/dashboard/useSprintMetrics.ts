@@ -14,6 +14,10 @@
 import { useMemo } from 'react';
 import type { Keypoint } from './viewport/PoseEngine/usePoseLandmarker';
 import type { CalibrationData } from './viewport/CalibrationAndMeasurements/CalibrationOverlay';
+import { angleDeg, segAngleDeg, segInclineDeg, smooth, derivative, buildSeries } from './sprintMath';
+import type { P2, JointTimeSeries } from './sprintMath';
+
+export type { P2, JointTimeSeries };
 
 // ── Public types ───────────────────────────────────────────────────────────────
 
@@ -27,16 +31,9 @@ export interface GroundContactEvent {
   flightTimeBefore: number; // seconds airborne before this contact
   contactSite: { x: number; y: number }; // heel pixel coords at touchdown
   comAtContact: { x: number; y: number }; // hip-midpoint at touchdown
-  comDistance: number; // distance CoM→contact site (m or px)
-  strideLength: number | null; // step length: to previous contact of either foot (m)
-  strideFrequency: number | null; // Hz — 1 / step cycle time
-}
-
-export interface JointTimeSeries {
-  frames: number[]; // frame indices (identity: 0…N-1)
-  angle: number[]; // degrees, smoothed
-  velocity: number[]; // deg/s, smoothed
-  accel: number[]; // deg/s², smoothed
+  comDistance: number; // signed horizontal offset: foot X − CoM X in metres (+ = ahead of CoM, − = behind)
+  stepLength: number | null; // step length: to previous contact of either foot (m)
+  stepFrequency: number | null; // Hz — 1 / step cycle time
 }
 
 export interface CoMSeries {
@@ -55,8 +52,8 @@ export interface SprintMetrics {
   groundContacts: GroundContactEvent[];
   avgContactTime: number; // s
   avgFlightTime: number; // s
-  avgStrideLength: number | null; // m or px
-  avgStrideFreq: number | null; // Hz
+  avgStepLength: number | null; // m or px
+  avgStepFreq: number | null; // Hz
   avgComDistance: number | null; // m or px
   // ── Angular — per joint, every frame ────────────────────────────────────────
   leftHip: JointTimeSeries;
@@ -71,10 +68,10 @@ export interface SprintMetrics {
   rightElbow: JointTimeSeries;
   leftWrist: JointTimeSeries;
   rightWrist: JointTimeSeries;
-  torso: JointTimeSeries; // trunk lean from vertical
-  leftThigh: JointTimeSeries; // thigh angle from vertical
+  torso: JointTimeSeries; // trunk inclination from horizontal (0°=horizontal/leaning fwd, 90°=upright)
+  leftThigh: JointTimeSeries; // thigh angle from downward vertical (signed: + = forward, − = behind)
   rightThigh: JointTimeSeries;
-  leftShin: JointTimeSeries; // shin angle from vertical
+  leftShin: JointTimeSeries; // shin inclination from horizontal (0°=horizontal, 90°=vertical shin)
   rightShin: JointTimeSeries;
   // ── CoM trajectory ─────────────────────────────────────────────────────────
   com: { frame: number; x: number; y: number }[];
@@ -84,7 +81,6 @@ export interface SprintMetrics {
 // ── Internal helpers ───────────────────────────────────────────────────────────
 
 const SCORE_MIN = 0.35;
-type P2 = { x: number; y: number };
 
 function pt(keypoints: Keypoint[], idx: number): P2 | null {
   const p = keypoints[idx];
@@ -92,68 +88,14 @@ function pt(keypoints: Keypoint[], idx: number): P2 | null {
   return { x: p.x, y: p.y };
 }
 
-/** Interior angle at vertex B in the triangle A-B-C, degrees [0, 180].
- *  ar/fw/fh correct for aspect ratio so the angle is in physical space:
- *  horizontal pixel distance is scaled by ar/fw, vertical by 1/fh. */
-function angleDeg(a: P2, b: P2, c: P2, ar: number, fw: number, fh: number): number {
-  const ax = (a.x - b.x) * ar / fw, ay = (a.y - b.y) / fh;
-  const cx = (c.x - b.x) * ar / fw, cy = (c.y - b.y) / fh;
-  const dot = ax * cx + ay * cy;
-  const mag = Math.hypot(ax, ay) * Math.hypot(cx, cy);
-  if (mag < 1e-6) return 0;
-  return (Math.acos(Math.max(-1, Math.min(1, dot / mag))) * 180) / Math.PI;
-}
-
-/** Angle of segment p1→p2 from the downward vertical (+y = down screen), degrees.
- *  Positive = right of vertical. ar/fw/fh apply calibration aspect-ratio. */
-function segAngleDeg(p1: P2, p2: P2, ar: number, fw: number, fh: number): number {
-  const dx = (p2.x - p1.x) * ar / fw;
-  const dy = (p2.y - p1.y) / fh;
-  return (Math.atan2(dx, dy) * 180) / Math.PI;
-}
-
-function smooth(arr: number[], w: number): number[] {
-  const half = Math.floor(w / 2);
-  return arr.map((_, i) => {
-    let s = 0,
-      n = 0;
-    for (let k = i - half; k <= i + half; k++) {
-      if (k >= 0 && k < arr.length) {
-        s += arr[k];
-        n++;
-      }
-    }
-    return s / n;
-  });
-}
-
-/** Central-difference derivative, then smooth. */
-function derivative(arr: number[], fps: number): number[] {
-  const n = arr.length;
-  const d = new Array(n).fill(0);
-  for (let i = 1; i < n - 1; i++) d[i] = ((arr[i + 1] - arr[i - 1]) * fps) / 2;
-  d[0] = d[1];
-  d[n - 1] = d[n - 2];
-  return smooth(d, 5);
-}
-
-function buildSeries(raw: (number | null)[], fps: number): JointTimeSeries {
-  // Forward-fill then backward-fill nulls
-  const filled = raw.slice() as number[];
-  for (let i = 1; i < filled.length; i++)
-    if (filled[i] == null) filled[i] = filled[i - 1] ?? 0;
-  for (let i = filled.length - 2; i >= 0; i--)
-    if (filled[i] == null) filled[i] = filled[i + 1] ?? 0;
-
-  const angle = smooth(smooth(filled, 3), 3);
-  const velocity = derivative(angle, fps);
-  const accel = derivative(velocity, fps);
-  return { frames: raw.map((_, i) => i), angle, velocity, accel };
-}
+// Re-export for consumers that import from here
+export { angleDeg, segAngleDeg, segInclineDeg, smooth, derivative, buildSeries };
 
 type ScaleOps = {
-  /** Convert a horizontal inference-frame pixel distance → metres. */
+  /** Convert a horizontal inference-frame pixel distance → metres (absolute). */
   h: (dx: number) => number;
+  /** Convert a signed horizontal pixel offset → metres (preserves sign). */
+  hSigned: (dx: number) => number;
   /** Convert a 2-D inference-frame pixel displacement → metres. */
   xy: (dx: number, dy: number) => number;
 } | null;
@@ -162,7 +104,7 @@ type ScaleOps = {
  *  Strategy: use whichever of toe/heel is closest to ground (largest Y in screen space).
  *  This captures toe-first contacts common in sprinting where the heel stays elevated.
  *  Threshold = 12% of total vertical travel — works for any camera height/distance. */
-function detectContacts(
+export function detectContacts(
   heelPts: (P2 | null)[],
   toePts: (P2 | null)[],
   fps: number,
@@ -170,6 +112,7 @@ function detectContacts(
   comPts: (P2 | null)[],
   prev: GroundContactEvent[],
   scaleOps: ScaleOps,
+  flipH = false,
 ): GroundContactEvent[] {
   // Combined foot Y: whichever landmark is closer to ground (larger Y in screen coords)
   const footYs: (number | null)[] = heelPts.map((h, i) => {
@@ -219,19 +162,19 @@ function detectContacts(
         // Only report CoM distance when calibrated.
         const comDist =
           site && com && scaleOps
-            ? scaleOps.xy(site.x - com.x, site.y - com.y)
+            ? scaleOps.hSigned((site.x - com.x) * (flipH ? -1 : 1))
             : 0;
 
         // Step: distance to the previous contact of EITHER foot (foot-to-next-foot)
         const prevEvt = [...prev, ...events].at(-1) ?? null;
-        let strideLength: number | null = null;
-        let strideFrequency: number | null = null;
+        let stepLength: number | null = null;
+        let stepFrequency: number | null = null;
         if (prevEvt && site) {
           const dx = Math.abs(site.x - prevEvt.contactSite.x);
-          // Only report stride length when calibrated — pixel values are meaningless here.
-          strideLength = scaleOps ? scaleOps.h(dx) : null;
+          // Only report step length when calibrated — pixel values are meaningless here.
+          stepLength = scaleOps ? scaleOps.h(dx) : null;
           const dt = (start - prevEvt.contactFrame) / fps;
-          strideFrequency = dt > 0 ? 1 / dt : null;
+          stepFrequency = dt > 0 ? 1 / dt : null;
         }
         const flightTimeBefore = prevEvt
           ? Math.max(0, (start - prevEvt.liftFrame) / fps)
@@ -247,8 +190,8 @@ function detectContacts(
           contactSite: site ?? { x: 0, y: 0 },
           comAtContact: com ?? { x: 0, y: 0 },
           comDistance: comDist,
-          strideLength,
-          strideFrequency,
+          stepLength,
+          stepFrequency,
         });
       }
       start = null;
@@ -270,6 +213,7 @@ export function useSprintMetrics(
   /** Inference-frame pixel dimensions — required for correct metre conversion. */
   frameWidth: number,
   frameHeight: number,
+  flipH = false,
 ): SprintMetrics | null {
   return useMemo(() => {
     if (totalFrames < 2 || fps <= 0) return null;
@@ -316,6 +260,9 @@ export function useSprintMetrics(
             h: (dx: number) =>
               ((Math.abs(dx) / frameWidth) * calibration.aspectRatio) /
               calibration.pixelsPerMeter,
+            hSigned: (dx: number) =>
+              ((dx / frameWidth) * calibration.aspectRatio) /
+              calibration.pixelsPerMeter,
             xy: (dx: number, dy: number) => {
               const nx = (dx / frameWidth) * calibration.aspectRatio;
               const ny = dy / frameHeight;
@@ -325,8 +272,8 @@ export function useSprintMetrics(
         : null;
 
     // ── Ground contacts ─────────────────────────────────────────────────────
-    const leftC = detectContacts(lHeel, lToe, fps, 'left', com, [], scaleOps);
-    const rightC = detectContacts(rHeel, rToe, fps, 'right', com, leftC, scaleOps);
+    const leftC = detectContacts(lHeel, lToe, fps, 'left', com, [], scaleOps, flipH);
+    const rightC = detectContacts(rHeel, rToe, fps, 'right', com, leftC, scaleOps, flipH);
     const contacts = [...leftC, ...rightC].sort(
       (a, b) => a.contactFrame - b.contactFrame,
     );
@@ -335,11 +282,11 @@ export function useSprintMetrics(
     const flightTimes = contacts
       .map((e) => e.flightTimeBefore)
       .filter((t) => t > 0);
-    const strideLengths = contacts.flatMap((e) =>
-      e.strideLength !== null ? [e.strideLength] : [],
+    const stepLengths = contacts.flatMap((e) =>
+      e.stepLength !== null ? [e.stepLength] : [],
     );
-    const strideFreqs = contacts.flatMap((e) =>
-      e.strideFrequency !== null ? [e.strideFrequency] : [],
+    const stepFreqs = contacts.flatMap((e) =>
+      e.stepFrequency !== null ? [e.stepFrequency] : [],
     );
 
     // ── Angular helpers ─────────────────────────────────────────────────────
@@ -361,25 +308,25 @@ export function useSprintMetrics(
         return p1 && p2 ? segAngleDeg(p1, p2, ar, fw, fh) : null;
       });
 
-    // Trunk forward lean from upward vertical: 0° = upright, + = forward lean.
-    // Uses -dy because nose is above hip (dy < 0 in screen coords), so we
-    // reference the upward direction to get a sensible 0° for an upright athlete.
-    const trunkDir = com.map((c, i) => {
-      const n = nose[i];
-      if (!c || !n) return null;
-      const dx = (n.x - c.x) * ar / fw;
-      const dy = (n.y - c.y) / fh; // negative: nose above hip
-      return (Math.atan2(dx, -dy) * 180) / Math.PI;
-    });
+    /** Inclination from horizontal: 0°=horizontal, 90°=vertical. */
+    const iA = (from: (P2 | null)[], to: (P2 | null)[]) =>
+      from.map((p1, i) => {
+        const p2 = to[i];
+        return p1 && p2 ? segInclineDeg(p1, p2, ar, fw, fh) : null;
+      });
+
+    // Trunk inclination from horizontal: 90° = perfectly upright, <90° = leaning forward/back.
+    // segInclineDeg(com→nose): nose is above hip so |dy| >> |dx| when upright → ~90°.
+    const trunkDir = iA(com, nose);
 
     return {
       groundContacts: contacts,
       avgContactTime: avg(contactTimes),
       avgFlightTime: avg(flightTimes),
-      avgStrideLength: strideLengths.length ? avg(strideLengths) : null,
-      avgStrideFreq: strideFreqs.length ? avg(strideFreqs) : null,
+      avgStepLength: stepLengths.length ? avg(stepLengths) : null,
+      avgStepFreq: stepFreqs.length ? avg(stepFreqs) : null,
       avgComDistance: (() => {
-        const ds = contacts.filter((e) => e.comDistance > 0).map((e) => e.comDistance);
+        const ds = contacts.filter((e) => e.comDistance !== 0).map((e) => e.comDistance);
         return ds.length ? avg(ds) : null;
       })(),
 
@@ -399,12 +346,12 @@ export function useSprintMetrics(
       leftWrist: buildSeries(jA(lElb, lWri, lToe), fps), // proxy: wrist extension
       rightWrist: buildSeries(jA(rElb, rWri, rToe), fps),
 
-      // Segment angles from vertical
+      // Segment angles
       torso: buildSeries(trunkDir, fps),
       leftThigh: buildSeries(sA(lHip, lKne), fps),
       rightThigh: buildSeries(sA(rHip, rKne), fps),
-      leftShin: buildSeries(sA(lKne, lAnk), fps),
-      rightShin: buildSeries(sA(rKne, rAnk), fps),
+      leftShin: buildSeries(iA(lKne, lAnk), fps),
+      rightShin: buildSeries(iA(rKne, rAnk), fps),
 
       com: com.map((p, i) => ({ frame: i, x: p?.x ?? 0, y: p?.y ?? 0 })),
 

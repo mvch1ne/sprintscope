@@ -11,7 +11,7 @@ import tempfile, os
 from rtmlib import PoseTracker, Wholebody3d
 
 app = FastAPI()
-
+print('Hello')
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

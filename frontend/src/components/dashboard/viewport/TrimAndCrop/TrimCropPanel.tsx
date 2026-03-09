@@ -45,6 +45,8 @@ interface Props {
   onSetTrimOutTo: (t: number) => void;
   onStartCropDraw: () => void;
   onClearCrop: () => void;
+  flipH: boolean;
+  onToggleFlipH: () => void;
   onExport: (mode: ExportMode) => void;
   exportStatus: ExportStatus;
   exportProgress: number;
@@ -76,6 +78,8 @@ export const TrimCropPanel = ({
   onSetTrimOutTo,
   onStartCropDraw,
   onClearCrop,
+  flipH,
+  onToggleFlipH,
   onExport,
   exportStatus,
   exportProgress,
@@ -350,6 +354,21 @@ export const TrimCropPanel = ({
                 </>
               )}
             </div>
+          </div>
+
+          {/* ── Flip ─────────────────────────────────────────── */}
+          <div className="px-3 py-2 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+            <span className="text-[11px] uppercase tracking-widest text-zinc-500">
+              Flip Horizontal
+            </span>
+            <button
+              onClick={onToggleFlipH}
+              className="flex items-center gap-1 cursor-pointer"
+            >
+              {flipH
+                ? <ToggleRight size={20} className="text-sky-400" />
+                : <ToggleLeft size={20} className="text-zinc-500" />}
+            </button>
           </div>
 
           {/* ── Export ───────────────────────────────────────── */}

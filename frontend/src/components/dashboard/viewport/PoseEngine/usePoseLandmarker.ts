@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 
 interface ImportMetaEnv {
   VITE_POSE_BACKEND_URL?: string;
@@ -32,6 +32,7 @@ interface UsePoseLandmarkerReturn {
   frameHeight: number;
   totalFrames: number;
   poseFps: number;
+  backendReachable: boolean;
   getKeypoints: (frame: number) => Keypoint[];
   analyseVideo: (videoSrc: string) => Promise<void>;
   reset: () => void;
@@ -40,10 +41,30 @@ interface UsePoseLandmarkerReturn {
 export function usePoseLandmarker(): UsePoseLandmarkerReturn {
   const [status, setStatus] = useState<LandmarkerStatus>('idle');
   const [progress, setProgress] = useState<PoseProgress | null>(null);
+  const [backendReachable, setBackendReachable] = useState(false);
   const [frameWidth, setFrameWidth] = useState(0);
   const [frameHeight, setFrameHeight] = useState(0);
   const [totalFrames, setTotalFrames] = useState(0);
   const [poseFps, setPoseFps] = useState(0);
+
+  // Poll /health on mount until the backend wakes up (handles cold-start / hibernation).
+  // Retries every 5 s indefinitely; stops as soon as a 200 is received.
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      while (!cancelled) {
+        try {
+          const r = await fetch(`${BACKEND_URL}/health`, { method: 'GET' });
+          if (r.ok) { setBackendReachable(true); return; }
+        } catch {
+          // not yet reachable — keep waiting
+        }
+        await new Promise((res) => setTimeout(res, 5000));
+      }
+    };
+    poll();
+    return () => { cancelled = true; };
+  }, []);
 
   const map2dRef = useRef<Map<number, Keypoint[]>>(new Map());
 
@@ -145,6 +166,7 @@ export function usePoseLandmarker(): UsePoseLandmarkerReturn {
     frameHeight,
     totalFrames,
     poseFps,
+    backendReachable,
     getKeypoints,
     analyseVideo,
     reset,
