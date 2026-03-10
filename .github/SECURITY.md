@@ -4,10 +4,10 @@
 
 SprintLab is currently in active development. Security fixes are applied to the latest version only.
 
-| Version         | Supported |
-| --------------- | --------- |
-| Latest (`main`) | Yes       |
-| Older releases  | No        |
+| Version | Supported |
+|---|---|
+| Latest (`main`) | Yes |
+| Older releases | No |
 
 ## Scope
 
