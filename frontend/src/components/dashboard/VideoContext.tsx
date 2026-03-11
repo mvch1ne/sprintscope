@@ -39,6 +39,11 @@ interface VideoContextValue {
   sprintMode: 'static' | 'flying';
   setSprintMode: (m: 'static' | 'flying') => void;
 
+  // Sprint direction: ltr = left-to-right, rtl = right-to-left
+  // Auto-detected from marker positions; can be overridden manually.
+  sprintDirection: 'ltr' | 'rtl';
+  setSprintDirection: (d: 'ltr' | 'rtl') => void;
+
   // Static mode: confirmed first-movement frame (user must explicitly confirm)
   confirmedSprintStart: number | null;
   setConfirmedSprintStart: (f: number | null) => void;
@@ -82,8 +87,9 @@ export const VideoProvider = ({ children }: { children: ReactNode }) => {
   const [sprintStart, setSprintStart] = useState<SprintMarkerCtx | null>(null);
   const [sprintFinish, setSprintFinish] = useState<SprintMarkerCtx | null>(null);
 
-  // Sprint mode state
+  // Sprint mode + direction state
   const [sprintMode, setSprintMode] = useState<'static' | 'flying'>('static');
+  const [sprintDirection, setSprintDirection] = useState<'ltr' | 'rtl'>('ltr');
   const [confirmedSprintStart, setConfirmedSprintStart] = useState<number | null>(null);
   const [proposedSprintStart, setProposedSprintStart] = useState<number | null>(null);
   const [reactionTime, setReactionTime] = useState(0.150);
@@ -113,6 +119,8 @@ export const VideoProvider = ({ children }: { children: ReactNode }) => {
         sprintFinish,
         sprintMode,
         setSprintMode: useCallback((m) => setSprintMode(m), []),
+        sprintDirection,
+        setSprintDirection: useCallback((d) => setSprintDirection(d), []),
         confirmedSprintStart,
         setConfirmedSprintStart: useCallback((f) => setConfirmedSprintStart(f), []),
         proposedSprintStart,

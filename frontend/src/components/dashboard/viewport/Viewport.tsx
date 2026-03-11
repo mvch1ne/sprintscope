@@ -295,6 +295,8 @@ export const Viewport = () => {
     setReactionTime: ctxSetReactionTime,
     setReactionTimeEnabled: ctxSetReactionTimeEnabled,
     sprintMode,
+    sprintDirection,
+    setSprintDirection: ctxSetSprintDirection,
   } = useVideoContext();
 
   // Stable delete handler — reads manualContactsRef to avoid stale closure
@@ -401,6 +403,27 @@ export const Viewport = () => {
   useEffect(() => {
     ctxSetSprintFinish(sprintFinish);
   }, [sprintFinish, ctxSetSprintFinish]);
+
+  // ── Auto-detect sprint direction from marker positions or CoM trajectory ──
+  // Flying: entry marker right of exit marker → RTL.
+  // Static: initial CoM right of start marker → RTL.
+  // Fallback: first-to-last CoM x delta (negative = RTL).
+  // Fires when markers or CoM data change; manual toggle in header overrides.
+  useEffect(() => {
+    const com = metricsWithMerged?.com ?? [];
+    let detected: 'ltr' | 'rtl';
+    if (sprintMode === 'flying' && sprintStart && sprintFinish) {
+      detected = sprintStart.site.x > sprintFinish.site.x ? 'rtl' : 'ltr';
+    } else if (sprintStart && com.length > 0) {
+      detected = (com[0]?.x ?? 0) > sprintStart.site.x ? 'rtl' : 'ltr';
+    } else if (com.length > 1) {
+      detected = com[com.length - 1].x < com[0].x ? 'rtl' : 'ltr';
+    } else {
+      return; // not enough data — leave current direction
+    }
+    ctxSetSprintDirection(detected);
+  }, [sprintStart, sprintFinish, sprintMode, metricsWithMerged, ctxSetSprintDirection]);
+
   // ── Suppress unused setter warnings (passed to Telemetry via context) ──────
   void ctxSetReactionTime;
   void ctxSetReactionTimeEnabled;
@@ -869,6 +892,25 @@ export const Viewport = () => {
                 </button>
               ))}
             </div>
+
+            {/* Sprint direction */}
+            <div className="flex items-center border border-zinc-300 dark:border-zinc-700 rounded-sm overflow-hidden">
+              {(['ltr', 'rtl'] as const).map((dir) => (
+                <button
+                  key={dir}
+                  onClick={() => ctxSetSprintDirection(dir)}
+                  title={dir === 'ltr' ? 'Left-to-right sprint' : 'Right-to-left sprint'}
+                  className={`px-1.5 h-4.5 text-[9px] uppercase tracking-widest transition-colors cursor-pointer border-r border-zinc-300 dark:border-zinc-700 last:border-r-0
+                    ${
+                      sprintDirection === dir
+                        ? 'bg-zinc-800 dark:bg-zinc-200 text-zinc-100 dark:text-zinc-900'
+                        : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'
+                    }`}
+                >
+                  {dir === 'ltr' ? '→ LTR' : '← RTL'}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </header>
@@ -1141,31 +1183,32 @@ export const Viewport = () => {
             )}
 
             {/* ── Coordinate system indicator ──────────────────────────── */}
+            {/* Origin is always top-left; +x direction flips with sprint direction */}
             <div className="absolute bottom-3 left-3 pointer-events-none select-none">
               <div className="bg-zinc-950/70 border border-zinc-700 rounded-sm px-2 py-1.5 backdrop-blur-sm">
                 <svg width="56" height="52" viewBox="0 0 56 52">
                   {/* Origin dot */}
                   <circle cx="28" cy="28" r="2" fill="#71717a" />
-                  {/* +x arrow (right) */}
-                  <line x1="28" y1="28" x2="50" y2="28" stroke="#38bdf8" strokeWidth="1.2" />
-                  <polygon points="50,25 56,28 50,31" fill="#38bdf8" />
-                  {/* -x arrow (left) */}
-                  <line x1="28" y1="28" x2="6" y2="28" stroke="#f87171" strokeWidth="1.2" />
-                  <polygon points="6,25 0,28 6,31" fill="#f87171" />
+                  {/* Sprint-forward arrow: right for LTR, left for RTL → always +x (sprint axis) */}
+                  <line x1="28" y1="28" x2="50" y2="28" stroke={sprintDirection === 'ltr' ? '#38bdf8' : '#f87171'} strokeWidth="1.2" />
+                  <polygon points="50,25 56,28 50,31" fill={sprintDirection === 'ltr' ? '#38bdf8' : '#f87171'} />
+                  {/* Sprint-backward arrow: left for LTR, right for RTL → always -x (sprint axis) */}
+                  <line x1="28" y1="28" x2="6" y2="28" stroke={sprintDirection === 'ltr' ? '#f87171' : '#38bdf8'} strokeWidth="1.2" />
+                  <polygon points="6,25 0,28 6,31" fill={sprintDirection === 'ltr' ? '#f87171' : '#38bdf8'} />
                   {/* +y arrow (down = screen down) */}
                   <line x1="28" y1="28" x2="28" y2="48" stroke="#a3e635" strokeWidth="1.2" />
                   <polygon points="25,48 28,54 31,48" fill="#a3e635" />
                   {/* -y arrow (up) */}
                   <line x1="28" y1="28" x2="28" y2="8" stroke="#a78bfa" strokeWidth="1.2" />
                   <polygon points="25,8 28,2 31,8" fill="#a78bfa" />
-                  {/* Labels */}
-                  <text x="53" y="26" fontSize="6" fill="#38bdf8" textAnchor="middle" fontFamily="monospace">+x</text>
-                  <text x="3" y="26" fontSize="6" fill="#f87171" textAnchor="middle" fontFamily="monospace">−x</text>
+                  {/* Labels — +x/−x indicate sprint axis positive direction */}
+                  <text x="53" y="26" fontSize="6" fill={sprintDirection === 'ltr' ? '#38bdf8' : '#f87171'} textAnchor="middle" fontFamily="monospace">{sprintDirection === 'ltr' ? '+x' : '−x'}</text>
+                  <text x="3" y="26" fontSize="6" fill={sprintDirection === 'ltr' ? '#f87171' : '#38bdf8'} textAnchor="middle" fontFamily="monospace">{sprintDirection === 'ltr' ? '−x' : '+x'}</text>
                   <text x="38" y="51" fontSize="6" fill="#a3e635" textAnchor="middle" fontFamily="monospace">+y</text>
                   <text x="38" y="8" fontSize="6" fill="#a78bfa" textAnchor="middle" fontFamily="monospace">−y</text>
                 </svg>
                 <div className="text-[7px] text-zinc-500 tracking-wide text-center mt-0.5 leading-tight">
-                  screen coords
+                  {sprintDirection === 'rtl' ? 'RTL · screen coords' : 'screen coords'}
                 </div>
               </div>
             </div>

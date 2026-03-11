@@ -1,6 +1,6 @@
 // ─── Telemetry Panel ──────────────────────────────────────────────────────────
 // Reads all state from VideoContext and PoseContext — no props needed.
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useVideoContext } from '../VideoContext';
 import { usePose } from '../PoseContext';
 import type {
@@ -409,6 +409,7 @@ function CoMTab({
   sprintStart,
   sprintFinish,
   sprintMode,
+  sprintDirection,
   confirmedSprintStart,
   reactionTime,
   reactionTimeEnabled,
@@ -423,6 +424,7 @@ function CoMTab({
   sprintStart: { frame: number; site: { x: number; y: number } } | null;
   sprintFinish: { frame: number; site: { x: number; y: number } } | null;
   sprintMode: 'static' | 'flying';
+  sprintDirection: 'ltr' | 'rtl';
   confirmedSprintStart: number | null;
   reactionTime: number;
   reactionTimeEnabled: boolean;
@@ -443,9 +445,13 @@ function CoMTab({
   const [flyEntryOverride, setFlyEntryOverride] = useState<number | null>(null);
   const [flyExitOverride, setFlyExitOverride] = useState<number | null>(null);
 
-  // Detect direction of motion from raw com.x (pose-frame pixels).
-  // movingPositive = true → athlete runs left-to-right (x increases).
-  const movingPositive = com.length > 1 && com[com.length - 1].x > com[0].x;
+  // Sprint direction drives all sign conventions here.
+  // Auto-detected in Viewport (from marker positions or CoM trajectory); overridable via header toggle.
+  const movingPositive = sprintDirection === 'ltr';
+
+  // Dismiss-able RTL confirmation banner state (resets when direction changes).
+  const [rtlBannerDismissed, setRtlBannerDismissed] = useState(false);
+  useEffect(() => { setRtlBannerDismissed(false); }, [sprintDirection]);
 
   /**
    * Find the fractional frame at which com.x (raw pose pixels — the same
@@ -670,6 +676,18 @@ function CoMTab({
 
     return (
       <div>
+        {/* RTL confirmation banner */}
+        {sprintDirection === 'rtl' && !rtlBannerDismissed && (
+          <div className="px-3 py-1.5 border-b border-amber-500/30 bg-amber-500/10 flex items-center gap-2">
+            <span className="text-xs font-mono text-amber-400 flex-1">← Right-to-left sprint detected</span>
+            <button
+              onClick={() => setRtlBannerDismissed(true)}
+              className="text-xs text-zinc-500 hover:text-amber-300 transition-colors cursor-pointer"
+            >
+              ✓ Ok
+            </button>
+          </div>
+        )}
         {/* RT controls */}
         <div className="px-3 py-1.5 border-b border-zinc-100 dark:border-zinc-800/60 flex items-center gap-2 flex-wrap">
           <span className="text-xs uppercase tracking-widest text-zinc-500 shrink-0">
@@ -866,6 +884,18 @@ function CoMTab({
 
     return (
       <div>
+        {/* RTL confirmation banner */}
+        {sprintDirection === 'rtl' && !rtlBannerDismissed && (
+          <div className="px-3 py-1.5 border-b border-amber-500/30 bg-amber-500/10 flex items-center gap-2">
+            <span className="text-xs font-mono text-amber-400 flex-1">← Right-to-left sprint detected</span>
+            <button
+              onClick={() => setRtlBannerDismissed(true)}
+              className="text-xs text-zinc-500 hover:text-amber-300 transition-colors cursor-pointer"
+            >
+              ✓ Ok
+            </button>
+          </div>
+        )}
         <SectionHead label="Fly zone result" color="#f97316" />
         <div className="grid grid-cols-3 divide-x divide-zinc-100 dark:divide-zinc-800/60 border-b border-zinc-100 dark:border-zinc-800/60">
           {[
@@ -1043,6 +1073,7 @@ export const Telemetry = () => {
     sprintStart,
     sprintFinish,
     sprintMode,
+    sprintDirection,
     confirmedSprintStart,
     reactionTime,
     reactionTimeEnabled,
@@ -1134,6 +1165,7 @@ export const Telemetry = () => {
             sprintStart={sprintStart}
             sprintFinish={sprintFinish}
             sprintMode={sprintMode}
+            sprintDirection={sprintDirection}
             confirmedSprintStart={confirmedSprintStart}
             reactionTime={reactionTime}
             reactionTimeEnabled={reactionTimeEnabled}

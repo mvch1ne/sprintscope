@@ -2,6 +2,79 @@
 
 All biomechanics computation in SprintLab is implemented in [`sprintMath.ts`](https://github.com/mvch1ne/sprintlab/blob/main/frontend/src/components/dashboard/sprintMath.ts) — a pure TypeScript module with no React dependencies.
 
+---
+
+## Coordinate System
+
+SprintLab uses **screen (pixel) coordinates** throughout: the origin is at the **top-left corner** of the inference frame, $x$ increases rightward, and $y$ increases downward.
+
+```
+(0,0) ──────────────────────── +x →
+  │
+  │           inference frame
+  │
+  │
+  +y
+  ↓
+```
+
+| Axis | Direction | Convention |
+|---|---|---|
+| $+x$ | rightward | increases left→right across the frame |
+| $+y$ | downward | increases top→bottom (screen convention) |
+| Origin | top-left | pixel $(0, 0)$ |
+
+This is the native coordinate system of the pose inference engine. All keypoint positions, marker sites, and CoM pixel coordinates share this space.
+
+---
+
+## Sprint Direction
+
+SprintLab supports both **left-to-right (LTR)** and **right-to-left (RTL)** sprints natively.
+
+### Auto-detection
+
+Direction is inferred automatically whenever markers or CoM data change, in priority order:
+
+1. **Flying mode with both markers placed** — if the Start (entry) marker has a larger $x$ than the Finish (exit) marker, the athlete is running RTL:
+   $$\text{direction} = \begin{cases} \text{RTL} & \text{if } x_{\text{start}} > x_{\text{finish}} \\ \text{LTR} & \text{otherwise} \end{cases}$$
+
+2. **Static mode with start marker placed** — if the athlete's initial CoM is to the right of the start line, they are behind it on the right side and running leftward:
+   $$\text{direction} = \begin{cases} \text{RTL} & \text{if } x_{\text{CoM},0} > x_{\text{start}} \\ \text{LTR} & \text{otherwise} \end{cases}$$
+
+3. **Fallback — CoM trajectory** — compare first and last CoM $x$ positions:
+   $$\text{direction} = \begin{cases} \text{RTL} & \text{if } x_{\text{CoM},N-1} < x_{\text{CoM},0} \\ \text{LTR} & \text{otherwise} \end{cases}$$
+
+### Manual override
+
+The **→ LTR / ← RTL** toggle in the viewport header shows the current direction and can be clicked at any time to override. When markers are placed or moved, auto-detection re-runs and may update the direction.
+
+An amber banner in the CoM tab ("Right-to-left sprint detected") appears whenever RTL is active, dismissible once the user has confirmed the setting.
+
+### Effect on calculations
+
+Direction is encoded as a sign factor $d$:
+
+$$d = \begin{cases} +1 & \text{LTR} \\ -1 & \text{RTL} \end{cases}$$
+
+Relative displacement past the start line is always non-negative in the sprint direction:
+
+$$\Delta X_i = \bigl(X_i - x_{\text{crossing}}\bigr) \cdot d \geq 0$$
+
+where $X_i$ is the CoM horizontal position in metres at frame $i$, and $x_{\text{crossing}}$ is the CoM position when it crosses the start line.
+
+Speed and acceleration are the magnitudes of their respective derivatives ($|\dot{X}|$, $|\ddot{X}|$), so these scalar metrics are direction-independent.
+
+### Coordinate indicator
+
+The axis diagram in the bottom-left corner of the viewport shows the **sprint axis** $+x$ direction:
+- **LTR** → $+x$ blue arrow points right (standard screen convention)
+- **RTL** → $+x$ blue arrow points left (sprint "forward" is left)
+
+The underlying screen pixel coordinate system does not change; the indicator highlights which screen direction is "forward" for the current sprint.
+
+---
+
 ## Notation
 
 | Symbol | Meaning |

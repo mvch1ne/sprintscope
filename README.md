@@ -1,3 +1,5 @@
+![Logo](https://github.com/mvch1ne/sprintlab/blob/main/frontend/public/logo.png)
+
 SprintLab is a web application I made to help sprinters perform kinematic analysis on their training videos so they can gain insights and improve their performance. It's a React single-page app built with TypeScript, and coupled with a Python backend built with FastAPI and RTMLib for highly accurate, research-level pose estimation and tracking of body landmarks.
 
 The app lets users upload videos, calibrate real-world distances and compute performance metrics like ground contact times, stride length, joint angles, linear and angular velocities, acceleration, and more — all from just a video.
@@ -7,6 +9,8 @@ This project is very personal to me. As an athlete and engineer from Ghana, West
 ### [FULL DOCUMENTATION WEBSITE→](https://mvch1ne.github.io/sprintlab/)
 
 ### DEPLOYED DEMO WEBSITE COMING SOON
+
+[![Watch a video demo here](https://img.youtube.com/vi/4RrcAlu0W9Q/0.jpg)](https://youtu.be/4RrcAlu0W9Q)
 
 ---
 
