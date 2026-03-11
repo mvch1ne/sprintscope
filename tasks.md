@@ -2,6 +2,8 @@
 
 ## Next Steps
 
+- Continue:
+
 - System is incorrectly detecting RTL when the video is LTR sometimes. This messes up with both the static and flying start modes. Let's assume LTR to start with. Then when we place the
 
 - Add a help button on the header that opens a modal where we'll link to a YouTube demo video. Will also provide a video download sample so users can test the platform without having their own sprint video. Can use modals to guide the user on what to do. Allow the user to turn off the modal for subsequent visits and store that in local storage but have the option to turn it back on so that it shows up every time they open the application.

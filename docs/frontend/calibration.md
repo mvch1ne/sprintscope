@@ -27,7 +27,7 @@ Points are stored in normalised video-space (divided by video width and height) 
 
 ## Scale Factor Computation
 
-The pixel length of the reference line in normalised coordinates is:
+The pixel length of the reference line in normalized coordinates is:
 
 $$L_{\text{norm}} = \sqrt{(\Delta \tilde{x})^2 + (\Delta \tilde{y})^2}$$
 
@@ -48,8 +48,8 @@ where $d_{\text{real}}$ is the real-world distance entered by the user.
 ```typescript
 interface CalibrationData {
   pixelsPerMeter: number;
-  aspectRatio: number;   // video pixel aspect ratio (used in angle corrections)
-  lineAngle: number;     // angle of the calibration line (degrees, informational)
+  aspectRatio: number; // video pixel aspect ratio (used in angle corrections)
+  lineAngle: number; // angle of the calibration line (degrees, informational)
 }
 ```
 
