@@ -6,7 +6,7 @@ import { X, Download, Play } from 'lucide-react';
 import sampleVideoUrl from '/sampleVideo.mp4';
 
 // ── Config — fill in when you have real URLs ────────────────────────────────
-const YOUTUBE_DEMO_URL = 'https://youtu.be/PLACEHOLDER';
+const YOUTUBE_DEMO_URL = 'https://youtu.be/4RrcAlu0W9Q';
 
 const STEPS = [
   {
