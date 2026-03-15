@@ -2,8 +2,6 @@
 
 ## Next Steps
 
-- System is incorrectly detecting RTL when the video is LTR sometimes. This messes up with both the static and flying start modes. Let's assume LTR to start with. Then when we place the start and finish markers, you can recheck, but still ask the user. Then of course, they always have the option to toggle the direction in their controls. If they do, restart everything.
-
 - Create a separate branch for hosting and host the frontend and backend. Make sure all the settings and modifications are made so they can talk to each other. That would be cool. I'm thinking Firebase for the frontend and Fly or Render for the backend but open to suggestions. I want to use free tiers and have the frontend and backend running as seamlessly as possible without any interruptions.
 
 - Add link for frontend to Github repository.
